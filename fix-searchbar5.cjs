@@ -1,143 +1,15 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Search, Sparkles, X, Clock, AlertTriangle, HelpCircle, Mic } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
-import { SearchSuggestionResponse } from "../types";
+const fs = require('fs');
+let code = fs.readFileSync('src/components/SearchBar.tsx', 'utf8');
 
-interface SearchBarProps {
-  onSearch: (query: string) => void;
-  kidsMode: boolean;
-  fontSizeClass: string;
+const badReturnIndex = code.indexOf('    return (\n    <div className={`relative');
+if (badReturnIndex !== -1) {
+    code = code.slice(0, badReturnIndex);
 }
 
-export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchBarProps) {
-  const [inputValue, setInputValue] = useState("");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [safetyCheck, setSafetyCheck] = useState<{ safe: boolean; explanation?: string }>({ safe: true });
-  const [isLoading, setIsLoading] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
-  const [history, setHistory] = useState<string[]>([]);
-  const [isListening, setIsListening] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const handleVoiceSearch = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert("Voice search is not supported in this browser.");
-      return;
-    }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
-
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInputValue(transcript);
-      addToHistory(transcript);
-      onSearch(transcript);
-      setIsOpen(false);
-    };
-
-    recognition.onerror = (event: any) => {
-      console.error("Speech recognition error", event.error);
-      setIsListening(false);
-      if (event.error === 'not-allowed') {
-        alert("Microphone access was denied. Please allow microphone permissions in your browser.");
-      }
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognition.start();
-  };
-
-  // Load Search History on Mount
-  useEffect(() => {
-    const saved = localStorage.getItem("nexus_search_history");
-    if (saved) {
-      setHistory(JSON.parse(saved));
-    }
-  }, []);
-
-  // Save Search History helper
-  const addToHistory = (q: string) => {
-    if (!q.trim()) return;
-    const filtered = history.filter((item) => item.toLowerCase() !== q.toLowerCase());
-    const updated = [q, ...filtered].slice(0, 6); // keep last 6 searches
-    setHistory(updated);
-    localStorage.setItem("nexus_search_history", JSON.stringify(updated));
-  };
-
-  const removeHistoryItem = (e: React.MouseEvent, q: string) => {
-    e.stopPropagation();
-    const updated = history.filter((item) => item !== q);
-    setHistory(updated);
-    localStorage.setItem("nexus_search_history", JSON.stringify(updated));
-  };
-
-
-  // Close suggestions dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
+const correctMiddle = `    return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, []);
-
-  // Debounced API Call for Suggestions
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (!inputValue.trim()) {
-        setSuggestions([]);
-        setSafetyCheck({ safe: true });
-        return;
-      }
-      setIsLoading(true);
-      try {
-        const res = await fetch(`/api/gemini/suggest?q=${encodeURIComponent(inputValue)}&kidsMode=${kidsMode}`);
-        const data = await res.json();
-        setSuggestions(data.suggestions || []);
-        setSafetyCheck({ safe: data.safe ?? true, explanation: data.safetyExplanation });
-      } catch (err) {
-        console.error("Failed to fetch suggestions:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [inputValue, kidsMode]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputValue.trim()) return;
-    
-    if (!safetyCheck.safe) {
-      alert("Please adjust your search. Let's find something safe!");
-      return;
-    }
-    
-    addToHistory(inputValue);
-    onSearch(inputValue);
-    setIsOpen(false);
-  };
-
-  const selectSuggestion = (val: string) => {
-    setInputValue(val);
-    addToHistory(val);
-    onSearch(val);
-    setIsOpen(false);
-  };
 
   const handleClear = () => {
     setInputValue("");
@@ -145,20 +17,22 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
     setSafetyCheck({ safe: true });
   };
 
-  return (
-    <div className={`relative w-full mx-auto z-40 ${fontSizeClass}`} ref={dropdownRef}>
+`;
+
+const renderBlock = `  return (
+    <div className={\`relative w-full max-w-4xl xl:max-w-5xl 2xl:max-w-6xl mx-auto z-40 \${fontSizeClass}\`} ref={dropdownRef}>
       <div className="flex items-center gap-4">
         <form onSubmit={handleSubmit} className="relative flex-1">
           <div
-            className={`flex items-center w-full rounded-full transition-all duration-300 relative overflow-hidden ${
+            className={\`flex items-center w-full rounded-full transition-all duration-300 relative overflow-hidden \${
               kidsMode
                 ? "bg-white/90 border-2 border-rose-200 focus-within:border-rose-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-rose-100/50"
                 : "bg-[#16161a] border border-red-500/30 focus-within:border-red-500/70 focus-within:bg-[#1a1a1f]"
-            }`}
+            }\`}
           >
             {/* Magnifying Glass */}
             <div className="pl-5 pr-2">
-              <Search className={`w-5 h-5 ${kidsMode ? "text-rose-400" : "text-gray-400"}`} />
+              <Search className={\`w-5 h-5 \${kidsMode ? "text-rose-400" : "text-gray-400"}\`} />
             </div>
 
             {/* Core Input */}
@@ -174,9 +48,9 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
               placeholder={
                 kidsMode ? "Search fun cartoons, animals, and space secrets! 🦕🚀" : "Search premium video feeds..."
               }
-              className={`w-full py-4 pr-14 text-lg bg-transparent outline-none border-none font-sans placeholder-gray-500 tracking-wide ${
+              className={\`w-full py-4 pr-14 text-lg bg-transparent outline-none border-none font-sans placeholder-gray-500 tracking-wide \${
                 kidsMode ? "text-rose-900 font-medium" : "text-white"
-              }`}
+              }\`}
             />
 
             {/* Right Action Icons (Clear / Sparkle loading indicator) */}
@@ -186,7 +60,7 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
                   animate={{ rotate: 360 }}
                   transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
                 >
-                  <Sparkles className={`w-5 h-5 ${kidsMode ? "text-rose-400" : "text-red-400"}`} />
+                  <Sparkles className={\`w-5 h-5 \${kidsMode ? "text-rose-400" : "text-red-400"}\`} />
                 </motion.div>
               )}
               {inputValue && (
@@ -194,9 +68,9 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
                   id="search-clear-btn"
                   type="button"
                   onClick={handleClear}
-                  className={`p-1.5 rounded-full transition-colors ${
+                  className={\`p-1.5 rounded-full transition-colors \${
                     kidsMode ? "hover:bg-rose-200/50 text-rose-500" : "hover:bg-white/10 text-gray-400 hover:text-white"
-                  }`}
+                  }\`}
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -213,11 +87,11 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
                 animate={{ opacity: 1, y: 5, scale: 1 }}
                 exit={{ opacity: 0, y: 10, scale: 0.98 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
-                className={`absolute left-0 right-0 mt-3 p-4 rounded-3xl shadow-2xl border ${
+                className={\`absolute left-0 right-0 mt-3 p-4 rounded-3xl shadow-2xl border \${
                   kidsMode
                     ? "bg-white border-rose-150 text-rose-900"
                     : "bg-[#0b0b12] border-white/5 text-gray-200"
-                }`}
+                }\`}
               >
                 {/* Safety block message in Kids Mode */}
                 {!safetyCheck.safe && (
@@ -235,9 +109,9 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
                 {/* suggestions list */}
                 {safetyCheck.safe && suggestions.length > 0 && (
                   <div className="mb-4">
-                    <p className={`text-xs uppercase font-bold tracking-[0.15em] px-4 mb-3 flex items-center gap-2 ${
+                    <p className={\`text-xs uppercase font-bold tracking-[0.15em] px-4 mb-3 flex items-center gap-2 \${
                       kidsMode ? "text-rose-500" : "text-red-500"
-                    }`}>
+                    }\`}>
                       <Sparkles className="w-4 h-4" />
                       AI Suggestions
                     </p>
@@ -247,13 +121,13 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
                           <button
                             type="button"
                             onClick={() => selectSuggestion(item)}
-                            className={`w-full text-left px-4 py-3 rounded-2xl text-base flex items-center gap-4 transition-all cursor-pointer ${
+                            className={\`w-full text-left px-4 py-3 rounded-2xl text-base flex items-center gap-4 transition-all cursor-pointer \${
                               kidsMode
                                 ? "hover:bg-rose-50 text-rose-900 font-medium"
                                 : "hover:bg-white/5 text-gray-200 hover:text-white"
-                            }`}
+                            }\`}
                           >
-                            <Search className={`w-5 h-5 ${kidsMode ? "text-rose-400" : "text-gray-400"}`} />
+                            <Search className={\`w-5 h-5 \${kidsMode ? "text-rose-400" : "text-gray-400"}\`} />
                             <span>{item}</span>
                           </button>
                         </li>
@@ -265,9 +139,9 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
                 {/* history list */}
                 {history.length > 0 && (
                   <div>
-                    <p className={`text-xs uppercase font-bold tracking-[0.15em] px-4 mb-3 flex items-center gap-2 ${
+                    <p className={\`text-xs uppercase font-bold tracking-[0.15em] px-4 mb-3 flex items-center gap-2 \${
                       kidsMode ? "text-rose-400" : "text-gray-500"
-                    }`}>
+                    }\`}>
                       <Clock className="w-4 h-4" />
                       Recent Searches
                     </p>
@@ -276,22 +150,22 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
                         <li key={index}>
                           <div
                             onClick={() => selectSuggestion(item)}
-                            className={`group w-full text-left px-4 py-3 rounded-2xl text-base flex items-center justify-between transition-all cursor-pointer ${
+                            className={\`group w-full text-left px-4 py-3 rounded-2xl text-base flex items-center justify-between transition-all cursor-pointer \${
                               kidsMode
                                 ? "hover:bg-rose-50 text-rose-900 font-medium"
                                 : "hover:bg-white/5 text-gray-200"
-                            }`}
+                            }\`}
                           >
                             <div className="flex items-center gap-4">
-                              <History className={`w-5 h-5 ${kidsMode ? "text-rose-300" : "text-gray-500"}`} />
+                              <History className={\`w-5 h-5 \${kidsMode ? "text-rose-300" : "text-gray-500"}\`} />
                               <span className={kidsMode ? "" : "text-gray-300 group-hover:text-white"}>{item}</span>
                             </div>
                             <button
                               type="button"
                               onClick={(e) => removeHistoryItem(e, item)}
-                              className={`p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity ${
+                              className={\`p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity \${
                                 kidsMode ? "hover:bg-rose-200 text-rose-600" : "hover:bg-white/10 text-gray-400 hover:text-white"
-                              }`}
+                              }\`}
                             >
                               <X className="w-4 h-4" />
                             </button>
@@ -310,11 +184,11 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
         <button
           type="button"
           onClick={handleVoiceSearch}
-          className={`flex-shrink-0 w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-md cursor-pointer ${
+          className={\`flex-shrink-0 w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-md cursor-pointer \${
             isListening 
               ? kidsMode ? "bg-rose-500 text-white animate-pulse shadow-rose-300" : "bg-red-500 text-white animate-pulse shadow-red-500/50"
               : kidsMode ? "bg-rose-100 text-rose-500 hover:bg-rose-200" : "bg-[#1e1e24] text-gray-300 hover:bg-[#2a2a32] hover:text-white border border-white/5"
-          }`}
+          }\`}
           title="Voice Search"
         >
           <Mic className="w-6 h-6" />
@@ -323,3 +197,6 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
     </div>
   );
 }
+`;
+
+fs.writeFileSync('src/components/SearchBar.tsx', code + correctMiddle + renderBlock);

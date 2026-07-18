@@ -12,8 +12,12 @@ export default function IntroAnimation({ onComplete }: IntroAnimationProps) {
 
   // Auto-advance animation steps
   useEffect(() => {
+    // Attempt to play sound automatically
+    playCinematicSound();
+
     // Step 0: Initial splash glow
     const t0 = setTimeout(() => setStep(1), 800);
+
     // Step 1: Text resolve & logo pulse
     const t1 = setTimeout(() => setStep(2), 2400);
     // Step 2: Scale out and finish
@@ -29,7 +33,7 @@ export default function IntroAnimation({ onComplete }: IntroAnimationProps) {
   }, [onComplete]);
 
   // Synthesis of an elegant cinematic "whoosh" sound using the browser's Web Audio API
-  const playCinematicSound = () => {
+  function playCinematicSound() {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;

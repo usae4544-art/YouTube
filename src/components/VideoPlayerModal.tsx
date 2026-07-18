@@ -3,9 +3,10 @@ import { motion, AnimatePresence } from "motion/react";
 import { 
   X, Sparkles, Heart, ThumbsUp, MessageSquare, Download, Share2, 
   Smile, ShieldCheck, HeartCrack, RefreshCw, SignalHigh,
-  DownloadCloud, Trash2
-} from "lucide-react";
+  DownloadCloud, Trash2, Headphones, Maximize2, Play
+, Lock, Send} from "lucide-react";
 import { YouTubeVideo, YouTubeComment, AISummary } from "../types";
+import { formatViews } from "../utils";
 
 interface VideoPlayerModalProps {
   video: YouTubeVideo;
@@ -14,6 +15,7 @@ interface VideoPlayerModalProps {
   fontSizeClass: string;
   isDownloaded: boolean;
   onToggleDownload: (video: YouTubeVideo) => void;
+  onToggleVault?: (video: YouTubeVideo) => void;
 }
 
 export default function VideoPlayerModal({ 
@@ -22,14 +24,51 @@ export default function VideoPlayerModal({
   kidsMode, 
   fontSizeClass,
   isDownloaded,
-  onToggleDownload
+  onToggleDownload,
+  onToggleVault
 }: VideoPlayerModalProps) {
   const [comments, setComments] = useState<YouTubeComment[]>([]);
   const [commentInput, setCommentInput] = useState("");
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [aiSummary, setAiSummary] = useState<AISummary | null>(null);
+  const [chatMessages, setChatMessages] = useState<{role: 'user'|'assistant', text: string}[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatting, setIsChatting] = useState(false);
+  
+  const handleChat = async () => {
+    if (!chatInput.trim() || isChatting) return;
+    
+    const userMsg = chatInput;
+    setChatInput("");
+    setChatMessages(prev => [...prev, { role: "user", text: userMsg }]);
+    setIsChatting(true);
+    
+    try {
+      const res = await fetch("/api/gemini/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userMsg,
+          videoContext: {
+            title: video.title,
+            description: video.description,
+            channelTitle: video.channelTitle
+          },
+          kidsMode
+        })
+      });
+      const data = await res.json();
+      setChatMessages(prev => [...prev, { role: "assistant", text: data.reply || "Sorry, I couldn't understand that." }]);
+    } catch (err) {
+      console.error(err);
+      setChatMessages(prev => [...prev, { role: "assistant", text: "Oops, something went wrong!" }]);
+    } finally {
+      setIsChatting(false);
+    }
+  };
   const [activeTab, setActiveTab] = useState<"info" | "comments" | "ai">("info");
   const [liked, setLiked] = useState(false);
+  const [isAudioMode, setIsAudioMode] = useState(false);
   
   // Simulated Downloading states
   const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
@@ -195,24 +234,44 @@ export default function VideoPlayerModal({
   return (
     <motion.div
       id="player-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 bg-black/85 backdrop-blur-xl overflow-y-auto"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      className={`fixed z-50 flex items-center justify-center transition-all duration-500 ${
+        isAudioMode 
+          ? "bottom-20 md:bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-80 h-[72px] bg-transparent p-0 pointer-events-none" 
+          : "inset-0 p-0 md:p-4 bg-black/85 backdrop-blur-xl overflow-y-auto"
+      }`}
+      initial={{ opacity: 0, backdropFilter: "blur(0px)" }}
+      animate={{ opacity: 1, backdropFilter: "blur(24px)" }}
+      exit={{ opacity: 0, backdropFilter: "blur(0px)" }}
     >
       <motion.div
         id="player-modal-content"
-        initial={{ y: "100%", scale: 1 }}
-        animate={{ y: 0, scale: 1, opacity: 1 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ type: "spring", damping: 22, stiffness: 120 }}
-        className={`w-full max-w-6xl xl:max-w-[85vw] h-full md:h-[90vh] rounded-none md:rounded-3xl overflow-hidden shadow-2xl flex flex-col border ${
-          kidsMode 
-            ? "bg-rose-50/98 border-rose-200 text-rose-950" 
-            : "bg-[#09090e]/95 border-white/10 text-gray-200"
+        initial={{ opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.8 }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        className={`w-full overflow-hidden shadow-2xl border transition-all duration-500 pointer-events-auto ${
+          isAudioMode
+            ? `h-[72px] rounded-2xl flex flex-row items-center p-3 gap-3 ${kidsMode ? "bg-rose-100 border-rose-300" : "bg-black/95 border-white/10"}`
+            : `flex flex-col max-w-6xl xl:max-w-[85vw] h-full md:h-[90vh] rounded-none md:rounded-3xl ${kidsMode ? "bg-rose-50/98 border-rose-200 text-rose-950" : "bg-[#09090e]/95 border-white/10 text-gray-200"}`
         } ${fontSizeClass}`}
       >
-        {/* Top Header Controls */}
+                <div className={`w-full h-full flex flex-row items-center p-3 gap-3 ${!isAudioMode ? "hidden" : ""}`}>
+            <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+              <Headphones className="w-5 h-5 text-red-500 animate-pulse" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold truncate text-white">{video.title}</p>
+              <p className="text-[10px] text-gray-400 truncate">Playing in background...</p>
+            </div>
+            <button id="minimize-close-btn" onClick={() => setIsAudioMode(false)} className="p-2 bg-white/10 text-white rounded-full hover:bg-white/20 transition-colors cursor-pointer shrink-0">
+              <Maximize2 className="w-4 h-4" />
+            </button>
+            <button id="minimize-exit-btn" onClick={onClose} className="p-2 bg-red-500/10 text-red-500 rounded-full hover:bg-red-500/20 transition-colors cursor-pointer shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+        </div>
+        <div className={`flex flex-col w-full h-full overflow-hidden ${isAudioMode ? "opacity-0 absolute pointer-events-none w-px h-px overflow-hidden" : ""}`}>
+            {/* Top Header Controls */}
         <div className={`flex items-center justify-between px-6 py-4 border-b ${
           kidsMode ? "border-rose-100 bg-rose-100/50" : "border-white/5 bg-white/2"
         }`}>
@@ -256,15 +315,13 @@ export default function VideoPlayerModal({
             </div>
 
             {/* Quick action bar beneath the video */}
-            <div className={`flex items-center justify-between px-6 py-3.5 border-t ${
+            <div className={`flex items-center gap-2 px-6 py-3.5 border-t overflow-x-auto no-scrollbar ${
               kidsMode ? "bg-rose-50/50 border-rose-100" : "bg-[#0b0b12] border-white/5"
             }`}>
-              {/* Like / Rating */}
-              <div className="flex items-center gap-2">
                 <button
                   id="like-video-btn"
                   onClick={() => setLiked(!liked)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold shrink-0 transition-all cursor-pointer ${
                     liked 
                       ? kidsMode 
                         ? "bg-rose-500 text-white" 
@@ -277,11 +334,10 @@ export default function VideoPlayerModal({
                   <ThumbsUp className={`w-4 h-4 ${liked ? "fill-current" : ""}`} />
                   <span>{liked ? "Liked!" : "Like"}</span>
                 </button>
-
                 <button
                   id="sparkle-ai-btn"
                   onClick={handleSummarize}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs shrink-0 font-semibold transition-all cursor-pointer ${
                     kidsMode
                       ? "bg-gradient-to-r from-pink-400 to-rose-400 text-white hover:opacity-90"
                       : "bg-gradient-to-r from-red-600 via-rose-600 to-violet-600 text-white hover:shadow-[0_0_20px_rgba(239,68,68,0.35)]"
@@ -290,15 +346,73 @@ export default function VideoPlayerModal({
                   <Sparkles className="w-4 h-4 animate-pulse" />
                   <span>AI Summary</span>
                 </button>
-              </div>
+                <button
+                  id="share-video-btn"
+                  onClick={async () => {
+                    try {
+                      if (navigator.share) {
+                        await navigator.share({
+                          title: video.title,
+                          text: `Check out this video: ${video.title}`,
+                          url: `https://www.youtube.com/watch?v=${video.id}`
+                        });
+                      } else {
+                        navigator.clipboard.writeText(`https://www.youtube.com/watch?v=${video.id}`);
+                        alert("Link copied to clipboard!");
+                      }
+                    } catch (err) {
+                      console.error("Error sharing", err);
+                    }
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 shrink-0 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    kidsMode 
+                      ? "bg-rose-200/50 text-rose-900 hover:bg-rose-200" 
+                      : "bg-white/5 text-gray-300 hover:bg-white/10"
+                  }`}
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Share</span>
+                </button>
+                <button
+                  id="audio-mode-btn"
+                  onClick={() => setIsAudioMode(true)}
+                  className={`flex items-center shrink-0 gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    kidsMode 
+                      ? "bg-rose-200/50 text-rose-900 hover:bg-rose-200" 
+                      : "bg-white/5 text-gray-300 hover:bg-white/10"
+                  }`}
+                >
+                  <Headphones className="w-4 h-4" />
+                  <span>Audio</span>
+                </button>
+                
+                {onToggleVault && (
+                  <button
+                    onClick={() => onToggleVault(video)}
+                    title="Add to Secure Vault"
+                    className="w-8 h-8 flex shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors cursor-pointer"
+                  >
+                    <Lock className="w-4 h-4" />
+                  </button>
+                )}
 
-              {/* Download / Offline */}
-              <div className="flex items-center gap-2">
+                <a 
+                  href={`https://ssyoutube.com/watch?v=${video.id}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className={`flex items-center shrink-0 gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                    kidsMode 
+                      ? "bg-rose-500 text-white shadow-lg shadow-rose-200" 
+                      : "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.2)] hover:bg-gray-200"
+                  }`}
+                >
+                  <DownloadCloud className="w-4 h-4" />
+                  <span>Download MP4</span>
+                </a>
                 <button
                   id="download-video-btn"
                   onClick={handleDownload}
                   disabled={isDownloading}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  className={`flex items-center gap-2 shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     isDownloaded 
                       ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                       : kidsMode
@@ -323,7 +437,9 @@ export default function VideoPlayerModal({
                     </>
                   )}
                 </button>
-              </div>
+                <button className={`flex shrink-0 items-center justify-center w-8 h-8 rounded-full font-bold text-sm cursor-pointer ${kidsMode ? "bg-rose-200 text-rose-900" : "bg-white/10 text-white"}`}>
+                  0
+                </button>
             </div>
           </div>
 
@@ -453,7 +569,7 @@ export default function VideoPlayerModal({
                           </span>
                           <span className="text-[9px] text-gray-500 mt-1 flex items-center gap-1">
                             <ThumbsUp className="w-2.5 h-2.5" />
-                            {comment.likeCount} likes
+                            {formatViews(comment.likeCount)} likes
                           </span>
                         </div>
                       </div>
@@ -539,6 +655,66 @@ export default function VideoPlayerModal({
                         <span className="font-bold text-teal-400 mr-1">Kids Safe Check:</span>
                         {aiSummary.kidsSafety}
                       </div>
+
+                      {/* Chat Interface */}
+                      <div className={`mt-4 pt-4 border-t ${kidsMode ? "border-rose-100" : "border-white/10"}`}>
+                        <p className={`text-[10px] uppercase font-bold tracking-widest mb-3 ${kidsMode ? "text-rose-500" : "text-amber-400"}`}>
+                          Ask Gemini
+                        </p>
+                        
+                        <div className="space-y-3 mb-3 max-h-40 overflow-y-auto no-scrollbar">
+                          {chatMessages.map((msg, i) => (
+                            <div key={i} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}>
+                              <span className={`text-[10px] mb-1 opacity-50 uppercase tracking-widest font-bold ${kidsMode ? "text-rose-800" : "text-white"}`}>
+                                {msg.role === "user" ? "You" : "Gemini"}
+                              </span>
+                              <div className={`p-3 rounded-2xl text-xs max-w-[90%] leading-relaxed ${
+                                msg.role === "user" 
+                                  ? kidsMode ? "bg-rose-500 text-white rounded-br-none" : "bg-red-600 text-white rounded-br-none"
+                                  : kidsMode ? "bg-white border border-rose-100 text-rose-950 rounded-bl-none" : "bg-white/5 border border-white/10 text-gray-300 rounded-bl-none"
+                              }`}>
+                                {msg.text}
+                              </div>
+                            </div>
+                          ))}
+                          {isChatting && (
+                            <div className="flex flex-col items-start">
+                              <div className={`p-3 rounded-2xl text-xs ${kidsMode ? "bg-white border border-rose-100 rounded-bl-none" : "bg-white/5 border border-white/10 rounded-bl-none"}`}>
+                                <RefreshCw className="w-4 h-4 animate-spin text-gray-400" />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 relative">
+                          <input
+                            type="text"
+                            value={chatInput}
+                            onChange={e => setChatInput(e.target.value)}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") handleChat();
+                            }}
+                            placeholder="Ask about this video..."
+                            className={`w-full px-4 py-2.5 pr-10 rounded-xl text-xs outline-none transition-all ${
+                              kidsMode 
+                                ? "bg-white border border-rose-200 text-rose-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200" 
+                                : "bg-white/5 border border-white/10 text-white focus:border-red-500 focus:bg-white/10"
+                            }`}
+                          />
+                          <button 
+                            onClick={handleChat}
+                            disabled={!chatInput.trim() || isChatting}
+                            className={`absolute right-2 p-1.5 rounded-lg transition-colors ${
+                              !chatInput.trim() || isChatting
+                                ? "opacity-50 cursor-not-allowed text-gray-500"
+                                : kidsMode ? "text-rose-600 hover:bg-rose-50" : "text-white hover:bg-white/10"
+                            }`}
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
                     </motion.div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
@@ -560,6 +736,7 @@ export default function VideoPlayerModal({
             </div>
           </div>
         </div>
+              </div>
       </motion.div>
     </motion.div>
   );

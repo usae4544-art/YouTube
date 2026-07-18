@@ -87,7 +87,7 @@ app.get("/api/youtube/popular", async (req, res) => {
 // 2. YouTube Proxy - Search Videos
 app.get("/api/youtube/search", async (req, res) => {
   try {
-    const q = req.query.q as string || "trending";
+    const q = req.query.q as string || "latest bhakti song bhajan bageshwar dham pradeep mishra";
     const maxResults = req.query.maxResults || "12";
     const pageToken = req.query.pageToken ? `&pageToken=${req.query.pageToken}` : "";
     const kidsMode = req.query.kidsMode === "true";
@@ -194,18 +194,18 @@ app.get("/api/gemini/suggest", async (req, res) => {
     if (!process.env.GEMINI_API_KEY) {
       // Fallback suggestions if API key isn't loaded
       const defaultSuggestions = [
-        `${q} tutorial`,
-        `${q} reaction`,
-        `${q} music`,
-        `${q} highlight`,
-        `${q} gaming review`
+        `${q} bhajan`,
+        `${q} katha`,
+        `${q} song`,
+        `${q} pravachan`,
+        `${q} chalisa`
       ];
       return res.json({ suggestions: defaultSuggestions, safe: true });
     }
 
     const systemPrompt = kidsMode
       ? "You are a safe, educational assistant for young kids. Provide a list of exactly 5 fun, kid-friendly search suggestions that start with or relate to the user's input. Ensure they are educational, fun, and totally appropriate for ages 3-10 (no violence, gaming with mature themes, or suggestive text). If the user enters anything inappropriate, output safe alternatives like 'dinosaur science facts'."
-      : "You are a helpful, smart search assistant. Provide a list of exactly 5 relevant, popular, and high-quality video search queries or suggestions based on the user's partial text input. Make them diverse and engaging.";
+      : "You are a helpful search assistant for a Bhakti and Devotional video app. Provide exactly 5 search suggestions based on the user's input. Focus strongly on Bhakti songs, Guruji (like Bageshwar Dham Sarkar, Pandit Pradeep Mishra) news/khabar, religious katha, and achha achha video (good devotional videos). If the input is empty or vague, suggest popular Hindi devotional queries.";
 
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
@@ -303,7 +303,77 @@ Description: ${description ? description.slice(0, 1000) : "No description provid
   }
 });
 
-// 8. Cross-Device Sync - Create Sync Session
+// 8. Gemini API - Video Chat
+app.post("/api/gemini/chat", async (req, res) => {
+  try {
+    const { message, videoContext, kidsMode } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.json({ reply: "I'm a placeholder bot! Set GEMINI_API_KEY to chat with real AI." });
+    }
+
+    const systemPrompt = kidsMode
+      ? "You are a friendly, safe educational assistant for kids. You are answering questions about a video. Keep answers simple, short, and very fun! Use emojis."
+      : "You are an expert video assistant. Answer the user's question about the video context provided. Be concise, helpful, and direct.";
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: `Context Video:
+Title: ${videoContext.title}
+Channel: ${videoContext.channelTitle || "Unknown"}
+Description: ${videoContext.description ? videoContext.description.slice(0, 1000) : "None"}
+
+User Question: ${message}`,
+      config: {
+        systemInstruction: systemPrompt
+      }
+    });
+
+    res.json({ reply: response.text });
+  } catch (error: any) {
+    console.error("Gemini chat failed:", error);
+    res.status(500).json({ error: "Failed to generate chat response", details: error.message });
+  }
+});
+
+
+// 10. Gemini API - Nexus AI Assistant
+app.post("/api/gemini/assistant", async (req, res) => {
+  try {
+    const { message, kidsMode } = req.body;
+    
+    if (!message) {
+      return res.status(400).json({ error: "Message is required" });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.json({ reply: "I am Nexus AI. Please set your GEMINI_API_KEY in the environment variables to unlock my full potential!" });
+    }
+
+    const systemPrompt = kidsMode
+      ? "You are Nexus AI, a super fun, friendly, and safe educational assistant built directly into the Nexus app. Answer kids' questions safely, use fun emojis, and be very encouraging! Never discuss mature topics."
+      : "You are Nexus AI, an intelligent, helpful, and highly capable assistant deeply integrated into the Nexus application. Answer the user's questions clearly, concisely, and professionally. You know about the app's features: Video exploration, AI summaries, safe Kids Mode, and offline downloads.";
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: message,
+      config: {
+        systemInstruction: systemPrompt
+      }
+    });
+
+    res.json({ reply: response.text });
+  } catch (error) {
+    console.error("Nexus AI assistant failed:", error);
+    res.status(500).json({ error: "Failed to generate AI response" });
+  }
+});
+
+// 9. Cross-Device Sync - Create Sync Session
 app.post("/api/sync/create", (req, res) => {
   try {
     const sessions = readSyncSessions();

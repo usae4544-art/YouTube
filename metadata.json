@@ -1,6 +1,6 @@
 {
   "name": "Premium Dark Video Portal",
   "description": "A glassmorphic, premium dark-themed video feed portal powered by the YouTube API and Gemini AI. Features cross-device synchronization, Kids Mode safety controls, offline simulation, and AI video summaries.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

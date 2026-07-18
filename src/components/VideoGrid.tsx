@@ -1,51 +1,23 @@
 import React from "react";
 import { motion } from "motion/react";
-import { Play, Eye, Calendar, Sparkles, AlertCircle } from "lucide-react";
+import { Play, Eye, Calendar, Sparkles, AlertCircle , DownloadCloud, Trash2, CheckCircle2, Lock} from "lucide-react";
 import { YouTubeVideo } from "../types";
+import { formatViews, formatRelativeDate } from "../utils";
 
 interface VideoGridProps {
   videos: YouTubeVideo[];
   onSelectVideo: (video: YouTubeVideo) => void;
   kidsMode: boolean;
   isLoading: boolean;
+  downloadedVideos?: YouTubeVideo[];
+  onToggleDownload?: (video: YouTubeVideo) => void;
+  onToggleVault?: (video: YouTubeVideo) => void;
+  showDeleteMode?: boolean;
+  lastVideoElementRef?: (node: HTMLDivElement | null) => void;
+  isLoadingMore?: boolean;
 }
 
-// Format views helper (e.g., 2304500 -> 2.3M)
-function formatViews(viewsStr?: string): string {
-  if (!viewsStr) return "120K views";
-  const num = parseInt(viewsStr, 10);
-  if (isNaN(num)) return viewsStr;
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1).replace(/\.0$/, "") + "M views";
-  }
-  if (num >= 1000) {
-    return (num / 1000).toFixed(1).replace(/\.0$/, "") + "K views";
-  }
-  return num + " views";
-}
-
-// Simple date parser (e.g., 2026-07-06T03:50:15Z -> 1 day ago)
-function formatRelativeDate(dateStr?: string): string {
-  if (!dateStr) return "recently";
-  try {
-    const published = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now.getTime() - published.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    const diffMonths = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30));
-
-    if (diffMins < 60) return `${diffMins || 1}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 30) return `${diffDays}d ago`;
-    return `${diffMonths || 1}mo ago`;
-  } catch (e) {
-    return "recent";
-  }
-}
-
-export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading }: VideoGridProps) {
+export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading, downloadedVideos = [], onToggleDownload, onToggleVault, showDeleteMode = false, lastVideoElementRef, isLoadingMore = false }: VideoGridProps) {
   
   // Skeleton count helper
   const skeletons = Array.from({ length: 8 });
@@ -102,9 +74,14 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading }
   }
 
   return (
+    <>
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6 2xl:gap-8">
-      {videos.map((video, index) => (
+      {videos.map((video, index) => {
+        const isDownloaded = downloadedVideos.some(v => v.id === video.id);
+        const isLastVideo = videos.length === index + 1;
+        return (
         <motion.div
+          ref={isLastVideo ? lastVideoElementRef : null}
           key={video.id + "-" + index}
           onClick={() => onSelectVideo(video)}
           whileTap={{ scale: 0.96 }}
@@ -119,7 +96,7 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading }
             type: "spring",
             damping: 18,
             stiffness: 100,
-            delay: Math.min(index * 0.05, 0.4)
+            delay: Math.min((index % 20) * 0.05, 0.4) // Using % 20 so newly loaded videos also animate
           }}
         >
           {/* Card Thumbnail Stage */}
@@ -131,6 +108,48 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading }
               className="w-full h-full object-cover transform transition-transform duration-700 group-hover:scale-105"
             />
             
+            {/* Quick Action Buttons (Download / Trash) */}
+            {(onToggleDownload || showDeleteMode) && (
+              <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
+                {showDeleteMode ? (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onToggleDownload) onToggleDownload(video);
+                    }}
+                    className="p-1.5 bg-black/60 hover:bg-red-600/90 rounded-full text-white backdrop-blur-sm transition-colors border border-white/10"
+                    title="Delete Download"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                ) : onToggleDownload ? (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleDownload(video);
+                    }}
+                    className={`p-1.5 rounded-full backdrop-blur-sm transition-colors border ${isDownloaded ? "bg-emerald-500/80 text-white border-emerald-400" : "bg-black/60 hover:bg-white/20 text-white border-white/10"}`}
+                    title={isDownloaded ? "Downloaded" : "Download Video"}
+                  >
+                    {isDownloaded ? <CheckCircle2 className="w-4 h-4" /> : <DownloadCloud className="w-4 h-4" />}
+                  </button>
+                ) : null}
+                
+                {onToggleVault && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleVault(video);
+                    }}
+                    className="p-1.5 rounded-full backdrop-blur-sm transition-colors border bg-black/60 hover:bg-violet-500/80 text-white border-white/10"
+                    title="Add to Vault"
+                  >
+                    <Lock className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            )}
+            
             {/* Dark glassmorphic hover overlay */}
             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
               <div className="p-3.5 rounded-full bg-red-600/90 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)] transform scale-75 group-hover:scale-100 transition-transform duration-300">
@@ -140,7 +159,7 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading }
 
             {/* Video Duration (if available) */}
             {video.duration && (
-              <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-medium font-mono bg-black/85 text-white tracking-widest border border-white/5">
+              <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded text-[11px] font-medium font-mono bg-black/85 text-white tracking-widest border border-white/5">
                 {video.duration}
               </span>
             )}
@@ -150,7 +169,7 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading }
           <div className="flex gap-3 mt-3.5 px-1 pb-2">
             {/* Channel Avatar */}
             {kidsMode ? (
-              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-rose-400 to-pink-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-rose-400 to-pink-500 flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm border border-rose-200">
                 {video.channelTitle?.charAt(0) || "K"}
               </div>
             ) : (
@@ -158,46 +177,51 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading }
                 src={video.channelAvatar || `https://api.dicebear.com/7.x/identicon/svg?seed=${video.channelId}`}
                 alt={video.channelTitle}
                 referrerPolicy="no-referrer"
-                className="w-9 h-9 rounded-full shrink-0 bg-white/5 object-cover"
+                className="w-10 h-10 rounded-full shrink-0 bg-white/5 object-cover"
               />
             )}
-
             <div className="flex flex-col min-w-0">
               {/* Title */}
-              <h4 className={`font-medium line-clamp-2 text-xs leading-relaxed transition-colors tracking-wide ${
+              <h4 className={`font-medium line-clamp-2 text-sm leading-relaxed transition-colors tracking-wide ${
                 kidsMode 
                   ? "text-rose-950 font-bold group-hover:text-rose-600" 
                   : "text-gray-100 group-hover:text-red-400"
               }`}>
                 {video.title}
               </h4>
-
               {/* Creator / Channel Name */}
-              <p className={`text-[11px] mt-1 flex items-center gap-1 font-sans ${
+              <p className={`text-xs mt-1 flex items-center gap-1 font-sans ${
                 kidsMode ? "text-rose-600 font-medium" : "text-gray-400 group-hover:text-gray-300"
               }`}>
                 <span>{video.channelTitle}</span>
                 {kidsMode && <Sparkles className="w-3 h-3 text-rose-400" />}
               </p>
-
               {/* Stats Bar */}
-              <div className={`flex items-center gap-2 mt-1 text-[10px] ${
-                kidsMode ? "text-rose-400" : "text-gray-500"
+              <div className={`flex items-center gap-2 mt-1.5 text-xs ${
+                kidsMode ? "text-rose-400 font-medium" : "text-gray-500"
               }`}>
                 <span className="flex items-center gap-1 shrink-0">
-                  <Eye className="w-3 h-3" />
+                  <Eye className="w-3.5 h-3.5" />
                   {formatViews(video.viewCount)}
                 </span>
                 <span className="shrink-0">•</span>
                 <span className="flex items-center gap-1 shrink-0">
-                  <Calendar className="w-3 h-3" />
+                  <Calendar className="w-3.5 h-3.5" />
                   {formatRelativeDate(video.publishedAt)}
                 </span>
               </div>
             </div>
           </div>
         </motion.div>
-      ))}
+      )})}
     </div>
+    {isLoadingMore && (
+      <div className="w-full flex justify-center py-6">
+        <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}>
+           <Sparkles className={`w-8 h-8 ${kidsMode ? "text-rose-400" : "text-red-500"}`} />
+        </motion.div>
+      </div>
+    )}
+    </>
   );
 }
