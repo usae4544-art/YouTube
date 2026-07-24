@@ -1,0 +1,24 @@
+const puppeteer = require('puppeteer');
+(async () => {
+  const browser = await puppeteer.launch({ args: ['--no-sandbox'] });
+  const page = await browser.newPage();
+  
+  await page.goto('http://localhost:3000');
+  await new Promise(r => setTimeout(r, 2000));
+  
+  try {
+      const enterBtn = await page.$('button.group');
+      if (enterBtn) {
+          await enterBtn.click();
+      }
+  } catch(e) { }
+
+  await new Promise(r => setTimeout(r, 2000));
+  // check search input
+  await page.type('#search-input', 'test video');
+  
+  await new Promise(r => setTimeout(r, 2000));
+  const html = await page.evaluate(() => document.body.innerHTML);
+  console.log(html.includes('test video') ? "Found input" : "No input");
+  await browser.close();
+})();

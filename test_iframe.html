@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<body>
+<iframe sandbox="allow-scripts" srcdoc="
+<script>
+try {
+  new webkitSpeechRecognition();
+  console.log('Success');
+} catch(e) {
+  console.log('Error:', e.name, e.message);
+}
+</script>
+"></iframe>
+</body>
+</html>

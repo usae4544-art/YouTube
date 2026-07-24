@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=overlays-content" />
     <title>Video Portal</title>
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
@@ -10,7 +10,36 @@
     <meta name="theme-color" content="#09090f" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  </head>
+  
+<script>
+window.addEventListener('error', function(event) {
+  if (event.message === 'Script error.' || (event.filename && event.filename.includes('effectivecpmnetwork'))) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  fetch('/api/log_error', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: event.message, filename: event.filename, lineno: event.lineno, colno: event.colno, error: event.error ? event.error.stack : null })
+  });
+}, true); // use capture mode to intercept before platform listener
+
+window.addEventListener('unhandledrejection', function(event) {
+  if (event.reason && event.reason.message === 'Script error.') {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  fetch('/api/log_error', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: event.reason ? event.reason.message : 'unhandled rejection', error: event.reason ? event.reason.stack : null })
+  });
+}, true);
+</script>
+<script async defer src="https://pl30477426.effectivecpmnetwork.com/cf/b1/92/cfb192c8306ba8195ea64e8f201ea782.js"></script>
+</head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

@@ -6,7 +6,7 @@ import { Tv, Heart, Clock, DownloadCloud, Sparkles, User, Settings,
   Smile, ZoomIn, ZoomOut, Volume2, Gamepad2, Music, Clapperboard, MonitorPlay,
   Upload, Radio, MessageCircle, Home, PlaySquare, PlusCircle, Bell, Cast,
   Search, Menu, Mic, Compass, PlayCircle, History, ListVideo, ThumbsUp, ChevronDown, Bot
-, Lock, ShieldAlert, X, Delete, Trash2, Check } from "lucide-react";
+, AlertCircle, Lock, ShieldAlert, X, Delete, Trash2, Check, Fingerprint, Download } from "lucide-react";
 
 import { YouTubeVideo, SyncSession } from "./types";
 import NetworkSpeedIndicator from "./components/NetworkSpeedIndicator";
@@ -15,6 +15,9 @@ import SearchBar from "./components/SearchBar";
 import VideoGrid from "./components/VideoGrid";
 import VideoPlayerModal from "./components/VideoPlayerModal";
 import SyncHub from "./components/SyncHub";
+import AdBanner from "./components/AdBanner";
+import PopunderAd from "./components/PopunderAd";
+import IssueReporter from "./components/IssueReporter";
 import { NexusAiAssistant } from "./components/NexusAiAssistant";
 
 // -----------------------------------------------------------------
@@ -121,6 +124,8 @@ const FALLBACK_KIDS_VIDEOS: YouTubeVideo[] = [
 import { GoogleLogin, googleLogout } from '@react-oauth/google';
 import { jwtDecode } from "jwt-decode";
 
+import confetti from "canvas-confetti";
+
 interface GoogleUser {
   name: string;
   email: string;
@@ -130,17 +135,242 @@ interface GoogleUser {
 export default function App() {
   // Navigation & view states
   const [introFinished, setIntroFinished] = useState(false);
-  const [activeTab, setActiveTab] = useState<"home" | "favorites" | "history" | "offline" | "live" | "profile" | "upload">("home");
+  const [toastMsg, setToastMsg] = useState("");
+  const [activeTab, setActiveTab] = useState<"home" | "favorites" | "history" | "offline" | "live" | "profile" | "issues">("home");
   const [activeCategory, setActiveCategory] = useState("all");
   
   // Custom preference setups
   const [kidsMode, setKidsMode] = useState(false);
   const [isTransitioningMode, setIsTransitioningMode] = useState(false);
 
-  const toggleKidsMode = () => {
+  // User State
+  const [user, setUser] = useState<GoogleUser | null>(() => {
+    const savedUser = localStorage.getItem("nexus_user");
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+  
+  const [savedUser, setSavedUser] = useState<GoogleUser | null>(() => {
+    const saved = localStorage.getItem("nexus_saved_user");
+    return saved ? JSON.parse(saved) : null;
+  });
+  
+  const [isSimulatingBiometric, setIsSimulatingBiometric] = useState(false);
+  const [apkUpdateAvailable, setApkUpdateAvailable] = useState<{ version: string; changes: string[]; apkUrl: string } | null>(null);
+
+  // Premium State
+  const [premiumState, setPremiumState] = useState<{ name: string | null, claimedAt: number | null, durationMs: number | null, active: boolean }>(() => {
+    const savedUser = localStorage.getItem("nexus_user");
+    if (savedUser) {
+      const parsedUser = JSON.parse(savedUser);
+      const subs = JSON.parse(localStorage.getItem("nexus_subscriptions") || "{}");
+      const userSub = subs[parsedUser.email];
+      if (userSub) {
+        const { name, claimedAt, durationMs } = userSub;
+        const now = Date.now();
+        return { name, claimedAt, durationMs, active: now - claimedAt < durationMs };
+      }
+    }
+    return { name: null, claimedAt: null, durationMs: null, active: false };
+  });
+
+  const [showSubscriptionPopup, setShowSubscriptionPopup] = useState(false);
+
+  // Ad Refresh State
+  const [adRefreshKey, setAdRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    // Instantly start interval when not in kids mode and no premium
+    if (!kidsMode && !premiumState.active) {
+      interval = setInterval(() => {
+        setAdRefreshKey(prev => prev + 1);
+      }, 35000); // 35 seconds refresh rate
+    }
+    return () => clearInterval(interval);
+  }, [kidsMode, premiumState.active]);
+
+  useEffect(() => {
+    if (premiumState.claimedAt && premiumState.durationMs) {
+      const interval = setInterval(() => {
+        const now = Date.now();
+        if (now - premiumState.claimedAt! >= premiumState.durationMs! && premiumState.active) {
+          setPremiumState(prev => ({ ...prev, active: false }));
+        }
+      }, 10000); // Check every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [premiumState.claimedAt, premiumState.durationMs, premiumState.active]);
+
+  useEffect(() => {
+    if (user) {
+      // Check for APK updates
+      fetch('/api/version')
+        .then(res => res.json())
+        .then(data => {
+          const currentVersion = "1.1.0"; // current client version
+          if (data.version && data.version !== currentVersion) {
+            // Wait a small delay so it doesn't interrupt immediate login transitions abruptly
+            setTimeout(() => {
+              setApkUpdateAvailable(data);
+            }, 1500);
+          }
+        })
+        .catch(err => console.error("Failed to check for updates:", err));
+        
+      fetch(`/api/subscription/${encodeURIComponent(user.email)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.name) {
+            const now = Date.now();
+            setPremiumState({ 
+              name: data.name, 
+              claimedAt: data.claimedAt, 
+              durationMs: data.durationMs, 
+              active: now - data.claimedAt < data.durationMs 
+            });
+            const subs = JSON.parse(localStorage.getItem("nexus_subscriptions") || "{}");
+            subs[user.email] = data;
+            localStorage.setItem("nexus_subscriptions", JSON.stringify(subs));
+          } else {
+            setPremiumState({ name: null, claimedAt: null, durationMs: null, active: false });
+          }
+        })
+        .catch(() => {
+          const subs = JSON.parse(localStorage.getItem("nexus_subscriptions") || "{}");
+          const userSub = subs[user.email];
+          if (userSub) {
+            const { name, claimedAt, durationMs } = userSub;
+            const now = Date.now();
+            setPremiumState({ name, claimedAt, durationMs, active: now - claimedAt < durationMs });
+          } else {
+            setPremiumState({ name: null, claimedAt: null, durationMs: null, active: false });
+          }
+        });
+    } else {
+      setPremiumState({ name: null, claimedAt: null, durationMs: null, active: false });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (premiumState.claimedAt && !premiumState.active) {
+      const hasShownPopup = sessionStorage.getItem("nexus_premium_popup_shown");
+      if (!hasShownPopup) {
+         setShowSubscriptionPopup(true);
+         sessionStorage.setItem("nexus_premium_popup_shown", "true");
+      }
+    }
+  }, [premiumState]);
+
+  const claimPremium = async (name: string, durationMs: number) => {
+    if (!user) {
+      setToastMsg("Please sign in from the Profile tab to access subscriptions and trials.");
+      setTimeout(() => setToastMsg(""), 3000);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/subscription/${encodeURIComponent(user.email)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, durationMs })
+      });
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setToastMsg(data.error || "Failed to claim subscription.");
+        setTimeout(() => setToastMsg(""), 3000);
+        return;
+      }
+      
+      const subs = JSON.parse(localStorage.getItem("nexus_subscriptions") || "{}");
+      subs[user.email] = data;
+      localStorage.setItem("nexus_subscriptions", JSON.stringify(subs));
+      setPremiumState({ ...data, active: true });
+    } catch (e) {
+      // Fallback
+      const subs = JSON.parse(localStorage.getItem("nexus_subscriptions") || "{}");
+      if (subs[user.email] && subs[user.email].name === name) {
+        setToastMsg(`You have already claimed the ${name} plan.`);
+        setTimeout(() => setToastMsg(""), 3000);
+        return;
+      }
+      const now = Date.now();
+      const newSub = { name, claimedAt: now, durationMs };
+      subs[user.email] = newSub;
+      localStorage.setItem("nexus_subscriptions", JSON.stringify(subs));
+      setPremiumState({ ...newSub, active: true });
+    }
+       
+    // Trigger celebration animation
+    confetti({
+      particleCount: 150,
+      spread: 100,
+      origin: { y: 0.6 },
+      colors: ['#f43f5e', '#f59e0b', '#3b82f6', '#10b981', '#8b5cf6']
+    });
+  };
+
+  const [kidsPin, setKidsPin] = useState<string | null>(localStorage.getItem("nexus_kids_pin"));
+  const [showKidsPinPrompt, setShowKidsPinPrompt] = useState<"setup" | "enter-enable" | "enter-disable" | false>(false);
+  const [kidsPinInput, setKidsPinInput] = useState("");
+  const [kidsPinError, setKidsPinError] = useState("");
+
+  const requestToggleKidsMode = () => {
+    if (kidsMode) {
+      // Attempting to turn OFF
+      if (kidsPin) {
+        setShowKidsPinPrompt("enter-disable");
+        setKidsPinInput("");
+        setKidsPinError("");
+      } else {
+        executeToggleKidsMode();
+      }
+    } else {
+      // Attempting to turn ON
+      if (!kidsPin) {
+        setShowKidsPinPrompt("setup");
+        setKidsPinInput("");
+        setKidsPinError("");
+      } else {
+        setShowKidsPinPrompt("enter-enable");
+        setKidsPinInput("");
+        setKidsPinError("");
+      }
+    }
+  };
+
+  const handleKidsPinSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (showKidsPinPrompt === "setup") {
+      if (kidsPinInput.length !== 4) {
+        setKidsPinError("PIN must be 4 digits.");
+        return;
+      }
+      localStorage.setItem("nexus_kids_pin", kidsPinInput);
+      setKidsPin(kidsPinInput);
+      setShowKidsPinPrompt(false);
+      executeToggleKidsMode();
+    } else if (showKidsPinPrompt === "enter-enable" || showKidsPinPrompt === "enter-disable") {
+      if (kidsPinInput === kidsPin) {
+        setShowKidsPinPrompt(false);
+        executeToggleKidsMode();
+      } else {
+        setKidsPinError("Incorrect PIN.");
+        setKidsPinInput("");
+      }
+    }
+  };
+
+  const executeToggleKidsMode = () => {
     setIsTransitioningMode(true);
     setTimeout(() => {
-      setKidsMode(!kidsMode);
+      setKidsMode((prev) => {
+        const nextMode = !prev;
+        if (nextMode && activeTab === "issues") {
+          setActiveTab("home"); // Navigate away from issues if entering kids mode
+        }
+        return nextMode;
+      });
       setTimeout(() => {
         setIsTransitioningMode(false);
       }, 800);
@@ -150,11 +380,6 @@ export default function App() {
   const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [showAiAssistant, setShowAiAssistant] = useState(false);
 
-  // User State
-  const [user, setUser] = useState<GoogleUser | null>(() => {
-    const savedUser = localStorage.getItem("nexus_user");
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
 
   // Sync state managers
   const [syncCode, setSyncCode] = useState("");
@@ -174,6 +399,10 @@ export default function App() {
 
   // Videos search cache
   const [videos, setVideos] = useState<YouTubeVideo[]>([]);
+  const [hiddenVideoIds, setHiddenVideoIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem("hiddenVideos");
+    return saved ? JSON.parse(saved) : [];
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [pageToken, setPageToken] = useState<string | null>(null);
@@ -183,12 +412,18 @@ export default function App() {
   const lastVideoElementRef = useCallback((node: HTMLDivElement | null) => {
     if (isLoadingMore) return;
     if (observer.current) observer.current.disconnect();
-    observer.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && pageToken) {
-        fetchFeeds(true);
+    try {
+      if (window.IntersectionObserver) {
+        observer.current = new IntersectionObserver(entries => {
+          if (entries[0].isIntersecting && pageToken) {
+            fetchFeeds(true);
+          }
+        });
+        if (node) observer.current.observe(node);
       }
-    });
-    if (node) observer.current.observe(node);
+    } catch (e) {
+      console.warn("IntersectionObserver not supported or threw error", e);
+    }
   }, [isLoadingMore, pageToken]);
 
   // Modals state
@@ -274,9 +509,15 @@ export default function App() {
           endpoint = `/api/youtube/search?maxResults=16&q=${encodeURIComponent("youtube shorts tiktok funny")}&kidsMode=${kidsMode}`;
         } else {
           endpoint = `/api/youtube/search?maxResults=16&q=${encodeURIComponent(activeCategory)}&kidsMode=${kidsMode}`;
+          if (activeCategory.includes("live")) {
+            endpoint += "&live=true";
+          }
         }
       } else if (currentQuery) {
         endpoint = `/api/youtube/search?maxResults=16&q=${encodeURIComponent(currentQuery)}&kidsMode=${kidsMode}`;
+        if (currentQuery.toLowerCase().includes("live")) {
+          endpoint += "&live=true";
+        }
       } else if (kidsMode) {
         // If Kids Mode is on and no query/category, fetch fun kids stuff
         endpoint = `/api/youtube/search?maxResults=16&q=educational+kids+cartoons+stories&kidsMode=true`;
@@ -337,12 +578,16 @@ export default function App() {
         }
       } else {
         // Quota fallback / Error fallback
+        setToastMsg("YouTube API limit reached or search failed. Showing offline preview videos.");
+        setTimeout(() => setToastMsg(""), 5000);
         if (!loadMore) {
           setVideos(kidsMode ? FALLBACK_KIDS_VIDEOS : FALLBACK_VIDEOS);
         }
       }
     } catch (e) {
       console.warn("YouTube Proxy failed or throttled. Initiating high-fidelity resilience fallback.", e);
+      setToastMsg("Search is currently unavailable due to high API demand. Showing offline preview videos.");
+      setTimeout(() => setToastMsg(""), 5000);
       if (!loadMore) {
         setVideos(kidsMode ? FALLBACK_KIDS_VIDEOS : FALLBACK_VIDEOS);
       }
@@ -470,7 +715,89 @@ export default function App() {
     localStorage.setItem("nexus_offline", JSON.stringify(updated));
   };
 
+  const handleBiometricLogin = async () => {
+    try {
+      if (!window.PublicKeyCredential) {
+        setToastMsg("Biometric authentication is not supported on this device/browser.");
+        setTimeout(() => setToastMsg(""), 3000);
+        return;
+      }
+
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+
+      const storedCredId = localStorage.getItem("nexus_biometric_id");
+
+      if (storedCredId) {
+        const credIdUint8 = Uint8Array.from(atob(storedCredId), c => c.charCodeAt(0));
+        
+        await navigator.credentials.get({
+          publicKey: {
+            challenge,
+            allowCredentials: [{
+              id: credIdUint8,
+              type: "public-key"
+            }],
+            userVerification: "required"
+          }
+        });
+        
+        if (savedUser) {
+          setUser(savedUser);
+          localStorage.setItem("nexus_user", JSON.stringify(savedUser));
+        }
+      } else {
+        const userId = new Uint8Array(16);
+        window.crypto.getRandomValues(userId);
+        
+        const cred = await navigator.credentials.create({
+          publicKey: {
+            challenge,
+            rp: { name: "Nexus App" },
+            user: {
+              id: userId,
+              name: savedUser ? savedUser.email : "user@nexus",
+              displayName: savedUser ? savedUser.name : "Nexus User"
+            },
+            pubKeyCredParams: [
+              { type: "public-key", alg: -7 },
+              { type: "public-key", alg: -257 }
+            ],
+            authenticatorSelection: {
+              authenticatorAttachment: "platform",
+              userVerification: "required"
+            },
+            timeout: 60000,
+            attestation: "none"
+          }
+        }) as PublicKeyCredential;
+        
+        if (cred) {
+          const credIdBase64 = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+          localStorage.setItem("nexus_biometric_id", credIdBase64);
+          
+          if (savedUser) {
+            setUser(savedUser);
+            localStorage.setItem("nexus_user", JSON.stringify(savedUser));
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("Biometric auth error:", err);
+      if (err.name === "NotAllowedError") {
+        setToastMsg("Biometric authentication was cancelled.");
+      } else {
+        setToastMsg("Biometric auth failed. Please use Google Sign In.");
+      }
+      setTimeout(() => setToastMsg(""), 3000);
+    }
+  };
+
   const handleLogout = () => {
+    if (user) {
+      localStorage.setItem("nexus_saved_user", JSON.stringify(user));
+      setSavedUser(user);
+    }
     googleLogout();
     setUser(null);
     setWatchHistory([]);
@@ -510,17 +837,25 @@ export default function App() {
 
   // Filter video list based on Active tab
   const getDisplayedVideos = () => {
+    let result = videos;
     if (isOfflineMode) {
       // Offline mode restricts views to ONLY downloaded local cache
-      return downloadedVideos;
+      result = downloadedVideos;
+    } else {
+      switch (activeTab) {
+        case "favorites": result = favorites; break;
+        case "history": result = watchHistory; break;
+        case "offline": result = downloadedVideos; break;
+        default: result = videos; break;
+      }
     }
+    return result.filter(v => !hiddenVideoIds.includes(v.id));
+  };
 
-    switch (activeTab) {
-      case "favorites": return favorites;
-      case "history": return watchHistory;
-      case "offline": return downloadedVideos;
-      default: return videos;
-    }
+  const handleRemoveVideo = (video: YouTubeVideo) => {
+    const newHidden = [...hiddenVideoIds, video.id];
+    setHiddenVideoIds(newHidden);
+    localStorage.setItem("hiddenVideos", JSON.stringify(newHidden));
   };
 
   // Category array based on Kids Mode
@@ -530,10 +865,13 @@ export default function App() {
         { id: "bal ganesha cartoon", name: "Bal Ganesha 🐘", icon: Clapperboard },
         { id: "little krishna cartoon", name: "Krishna Tales 🦚", icon: Lightbulb },
         { id: "kids hanuman chalisa", name: "Hanuman 🐒", icon: Gamepad2 },
+        { id: "live kids bhajan aarti", name: "Live TV 🔴", icon: Radio },
         { id: "kids devotional singalong", name: "Bhajan 🎶", icon: Music }
       ]
     : [
         { id: "all", name: "Home", icon: Flame },
+        { id: "live bhakti aarti katha bageshwar dham", name: "Live 🔴", icon: Radio },
+        { id: "bhakti shorts whatsapp status", name: "Shorts", icon: Smartphone },
         { id: "bhakti song", name: "Bhakti Song", icon: Music },
         { id: "guruji bageshwar dham khabar", name: "Guruji Khabar", icon: Info },
         { id: "achha achha bhajan video", name: "Achha Video", icon: Sparkles },
@@ -548,11 +886,12 @@ export default function App() {
   };
 
   return (
-    <div className={`relative min-h-screen transition-all duration-700 overflow-x-hidden ${
+    <div className={`fixed inset-0 w-full h-full transition-all duration-700 overflow-hidden transform-gpu will-change-transform ${
       kidsMode
         ? "bg-gradient-to-tr from-[#ffeef2] via-[#fff5f7] to-[#eef9ff] text-rose-950"
         : "bg-[#0f0f0f] text-gray-100"
     } ${getFontSizeClass()}`}>
+      {!premiumState.active && !kidsMode && <PopunderAd refreshKey={adRefreshKey} />}
       <AnimatePresence>
         {isTransitioningMode && (
           <motion.div 
@@ -594,7 +933,7 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.8 }}
-            className="flex flex-col h-screen"
+            className="flex flex-col h-full overflow-hidden"
           >
             {/* Ambient Background Spotlights (Premium Aesthetic) */}
             {!kidsMode && (
@@ -661,10 +1000,12 @@ export default function App() {
                        {activeTab === "history" && !isOfflineMode && !kidsMode && <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-transparent opacity-50" />}
                        <History className={`w-6 h-6 relative z-10 transition-transform duration-300 ${activeTab === "history" && !isOfflineMode ? "scale-110" : "group-hover:scale-110"}`} /> <span className="font-bold relative z-10">History</span>
                      </button>
-                     <button onClick={() => { setActiveTab("upload"); setIsOfflineMode(false); }} className={`group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 relative overflow-hidden ${activeTab === "upload" && !isOfflineMode ? (kidsMode ? "bg-rose-100 text-rose-700 shadow-sm" : "bg-white/10 text-white shadow-lg shadow-white/5") : "text-gray-500 hover:bg-white/5 hover:text-gray-300"}`}>
-                       {activeTab === "upload" && !isOfflineMode && !kidsMode && <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 to-transparent opacity-50" />}
-                       <Upload className={`w-6 h-6 relative z-10 transition-transform duration-300 ${activeTab === "upload" && !isOfflineMode ? "scale-110" : "group-hover:scale-110"}`} /> <span className="font-bold relative z-10">Upload</span>
-                     </button>
+                     {user && !kidsMode && (
+                       <button onClick={() => { setActiveTab("issues"); setIsOfflineMode(false); }} className={`group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 relative overflow-hidden ${activeTab === "issues" && !isOfflineMode ? (kidsMode ? "bg-rose-100 text-rose-700 shadow-sm" : "bg-white/10 text-white shadow-lg shadow-white/5") : "text-gray-500 hover:bg-white/5 hover:text-gray-300"}`}>
+                         {activeTab === "issues" && !isOfflineMode && !kidsMode && <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 to-transparent opacity-50" />}
+                         <AlertCircle className={`w-6 h-6 relative z-10 transition-transform duration-300 ${activeTab === "issues" && !isOfflineMode ? "scale-110" : "group-hover:scale-110"}`} /> <span className="font-bold relative z-10">Issues</span>
+                       </button>
+                     )}
                   </div>
                   <div className="p-4 space-y-2 border-t border-white/10 relative z-10 bg-black/10 backdrop-blur-md">
                      <p className={`px-4 text-xs font-bold tracking-wider uppercase mb-4 ${kidsMode ? "text-rose-400" : "text-gray-500"}`}>Account</p>
@@ -681,7 +1022,7 @@ export default function App() {
                        )}
                        <span className="font-bold relative z-10">Profile</span>
                      </button>
-                     <button onClick={toggleKidsMode} className={`group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 relative overflow-hidden mt-2 ${kidsMode ? "bg-rose-500 text-white shadow-lg hover:bg-rose-600 hover:shadow-rose-500/30" : "bg-white/5 border border-white/10 text-white hover:bg-white/10 hover:border-white/20"}`}>
+                     <button onClick={requestToggleKidsMode} className={`group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 relative overflow-hidden mt-2 ${kidsMode ? "bg-rose-500 text-white shadow-lg hover:bg-rose-600 hover:shadow-rose-500/30" : "bg-white/5 border border-white/10 text-white hover:bg-white/10 hover:border-white/20"}`}>
                        <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
                        <Baby className="w-6 h-6 relative z-10 group-hover:animate-bounce" /> <span className="font-bold relative z-10">{kidsMode ? "Exit Kids Mode" : "Kids Mode"}</span>
                      </button>
@@ -689,20 +1030,30 @@ export default function App() {
                        <Bot className="w-6 h-6 relative z-10 group-hover:rotate-12 transition-transform" /> <span className="font-bold relative z-10">Nexus AI</span>
                        <div className="absolute top-0 right-0 w-8 h-8 bg-indigo-400/20 rounded-full blur-[10px] group-hover:scale-150 transition-transform"></div>
                      </button>
+                     {!premiumState.active && (
+                       <a href="https://www.effectivecpmnetwork.com/kv20f6wp?key=a819d50594ca2271376e8a6f650047a7" target="_blank" rel="noopener noreferrer" className={`group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 relative overflow-hidden mt-2 ${kidsMode ? "bg-amber-100 text-amber-600 hover:bg-amber-200" : "bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20"}`}>
+                         <Sparkles className="w-6 h-6 relative z-10 group-hover:rotate-12 transition-transform" /> <span className="font-bold relative z-10">Special Offers</span>
+                       </a>
+                     )}
                   </div>
                </aside>
 
                {/* MAIN CONTENT AREA */}
-               <main className="flex-1 relative overflow-y-auto p-4 md:p-8 pb-32 md:pb-8 scrollbar-none">
+               <main className="flex-1 relative overflow-y-auto p-4 md:p-8 pb-32 md:pb-8 scrollbar-none transform-gpu will-change-transform touch-pan-y contain-content">
                   {activeTab === "home" && !isOfflineMode && (
-                     <VideoGrid
-                        videos={getDisplayedVideos()}
-                        onSelectVideo={handleSelectVideo}
-                        kidsMode={kidsMode}
-                        isLoading={isLoading}
-                        downloadedVideos={downloadedVideos}
-                        onToggleDownload={handleToggleDownload}
-                     />
+                     <>
+                       {!premiumState.active && !kidsMode && <AdBanner refreshKey={adRefreshKey} />}
+                       <VideoGrid
+                          videos={getDisplayedVideos()}
+                          onSelectVideo={handleSelectVideo}
+                          kidsMode={kidsMode}
+                          isLoading={isLoading}
+                          downloadedVideos={downloadedVideos}
+                          onRemoveVideo={handleRemoveVideo}
+                          onToggleDownload={handleToggleDownload}
+
+                       />
+                     </>
                   )}
                   {activeTab === "favorites" && !isOfflineMode && (
                      <motion.div 
@@ -719,9 +1070,106 @@ export default function App() {
                            <p className={`text-lg md:text-xl ${kidsMode ? "text-rose-500" : "text-gray-400"}`}>
                              Unlock an ad-free experience, offline downloads, and more.
                            </p>
+                           
                         </div>
                         
-                        <div className="grid md:grid-cols-2 gap-8 w-full px-4">
+                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 w-full px-4">
+                           {/* 1-Hour Trial Plan */}
+                           <div className={`rounded-3xl p-8 relative overflow-hidden transition-all duration-300 hover:-translate-y-2 border ${kidsMode ? "bg-white/60 border-white shadow-xl hover:shadow-rose-200" : "bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10"}`}>
+                              <div className="relative z-10">
+                                 <h3 className={`text-2xl font-bold mb-2 ${kidsMode ? "text-rose-600" : "text-white"}`}>1-Hour Trial</h3>
+                                 <div className="flex items-baseline gap-2 mb-6">
+                                    <span className={`text-4xl font-black ${kidsMode ? "text-rose-500" : "text-white"}`}>Free</span>
+                                    <span className="text-gray-500">/1 hr</span>
+                                 </div>
+                                 <ul className="space-y-4 mb-8">
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>Quick ad-free session</span>
+                                    </li>
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>Test all premium features</span>
+                                    </li>
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>One-time claim</span>
+                                    </li>
+                                 </ul>
+                                 <button 
+                                    onClick={!premiumState.claimedAt ? () => claimPremium('1-hour', 60 * 60 * 1000) : undefined} 
+                                    disabled={!!premiumState.claimedAt}
+                                    className={`w-full py-4 rounded-2xl font-bold transition-all ${premiumState.claimedAt ? (premiumState.name === '1-hour' && premiumState.active ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-gray-500/20 text-gray-500 cursor-not-allowed") : kidsMode ? "bg-rose-500 text-white hover:bg-rose-600 hover:shadow-lg" : "bg-white/10 text-white hover:bg-white/20"}`}
+                                 >
+                                    {premiumState.claimedAt ? (premiumState.name === '1-hour' && premiumState.active ? "Trial Active" : premiumState.name === '1-hour' ? "Trial Ended" : "Another Plan Active") : "Claim Free Trial"}
+                                 </button>
+                              </div>
+                           </div>
+
+                           {/* 1-Day Trial Plan */}
+                           <div className={`rounded-3xl p-8 relative overflow-hidden transition-all duration-300 hover:-translate-y-2 border ${kidsMode ? "bg-white/60 border-white shadow-xl hover:shadow-rose-200" : "bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10"}`}>
+                              <div className="relative z-10">
+                                 <h3 className={`text-2xl font-bold mb-2 ${kidsMode ? "text-rose-600" : "text-white"}`}>1-Day Trial</h3>
+                                 <div className="flex items-baseline gap-2 mb-6">
+                                    <span className={`text-4xl font-black ${kidsMode ? "text-rose-500" : "text-white"}`}>Free</span>
+                                    <span className="text-gray-500">/24 hrs</span>
+                                 </div>
+                                 <ul className="space-y-4 mb-8">
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>Ad-free streaming</span>
+                                    </li>
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>Test all premium features</span>
+                                    </li>
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>One-time claim</span>
+                                    </li>
+                                 </ul>
+                                 <button 
+                                    onClick={!premiumState.claimedAt ? () => claimPremium('1-day', 24 * 60 * 60 * 1000) : undefined} 
+                                    disabled={!!premiumState.claimedAt}
+                                    className={`w-full py-4 rounded-2xl font-bold transition-all ${premiumState.claimedAt ? (premiumState.name === '1-day' && premiumState.active ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-gray-500/20 text-gray-500 cursor-not-allowed") : kidsMode ? "bg-rose-500 text-white hover:bg-rose-600 hover:shadow-lg" : "bg-white/10 text-white hover:bg-white/20"}`}
+                                 >
+                                    {premiumState.claimedAt ? (premiumState.name === '1-day' && premiumState.active ? "Trial Active" : premiumState.name === '1-day' ? "Trial Ended" : "Another Plan Active") : "Claim Free Trial"}
+                                 </button>
+                              </div>
+                           </div>
+
+                           {/* Weekly Plan */}
+                           <div className={`rounded-3xl p-8 relative overflow-hidden transition-all duration-300 hover:-translate-y-2 border ${kidsMode ? "bg-white/60 border-white shadow-xl hover:shadow-rose-200" : "bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10"}`}>
+                              <div className="relative z-10">
+                                 <h3 className={`text-2xl font-bold mb-2 ${kidsMode ? "text-rose-600" : "text-white"}`}>Weekly Pass</h3>
+                                 <div className="flex items-baseline gap-2 mb-6">
+                                    <span className={`text-4xl font-black ${kidsMode ? "text-rose-500" : "text-white"}`}>$1.49</span>
+                                    <span className="text-gray-500">/7 days</span>
+                                 </div>
+                                 <ul className="space-y-4 mb-8">
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>Ad-free streaming</span>
+                                    </li>
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>Offline downloads</span>
+                                    </li>
+                                    <li className="flex items-center gap-3">
+                                       <div className={`w-6 h-6 rounded-full flex items-center justify-center ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-white/10 text-white"}`}><Check className="w-4 h-4" /></div>
+                                       <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>Short-term access</span>
+                                    </li>
+                                 </ul>
+                                 <button 
+                                    onClick={!premiumState.claimedAt ? () => claimPremium('7-day', 7 * 24 * 60 * 60 * 1000) : undefined} 
+                                    disabled={!!premiumState.claimedAt}
+                                    className={`w-full py-4 rounded-2xl font-bold transition-all ${premiumState.claimedAt ? (premiumState.name === '7-day' && premiumState.active ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-gray-500/20 text-gray-500 cursor-not-allowed") : kidsMode ? "bg-rose-500 text-white hover:bg-rose-600 hover:shadow-lg" : "bg-white/10 text-white hover:bg-white/20"}`}
+                                 >
+                                    {premiumState.claimedAt ? (premiumState.name === '7-day' && premiumState.active ? "Pass Active" : premiumState.name === '7-day' ? "Pass Ended" : "Another Plan Active") : "Claim 7-Day Pass"}
+                                 </button>
+                              </div>
+                           </div>
+
                            {/* Monthly Plan */}
                            <div className={`rounded-3xl p-8 relative overflow-hidden transition-all duration-300 hover:-translate-y-2 border ${kidsMode ? "bg-white/60 border-white shadow-xl hover:shadow-rose-200" : "bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/10"}`}>
                               <div className="relative z-10">
@@ -744,8 +1192,12 @@ export default function App() {
                                        <span className={kidsMode ? "text-rose-900" : "text-gray-300"}>Cancel anytime</span>
                                     </li>
                                  </ul>
-                                 <button className={`w-full py-4 rounded-2xl font-bold transition-all ${kidsMode ? "bg-rose-500 text-white hover:bg-rose-600 hover:shadow-lg" : "bg-white/10 text-white hover:bg-white/20"}`}>
-                                    Subscribe Monthly
+                                 <button 
+                                    onClick={!premiumState.claimedAt ? () => claimPremium('monthly', 30 * 24 * 60 * 60 * 1000) : undefined} 
+                                    disabled={!!premiumState.claimedAt}
+                                    className={`w-full py-4 rounded-2xl font-bold transition-all ${premiumState.claimedAt ? (premiumState.name === 'monthly' && premiumState.active ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-gray-500/20 text-gray-500 cursor-not-allowed") : kidsMode ? "bg-rose-500 text-white hover:bg-rose-600 hover:shadow-lg" : "bg-white/10 text-white hover:bg-white/20"}`}
+                                 >
+                                    {premiumState.claimedAt ? (premiumState.name === 'monthly' && premiumState.active ? "Pass Active" : premiumState.name === 'monthly' ? "Pass Ended" : "Another Plan Active") : "Subscribe Monthly"}
                                  </button>
                               </div>
                            </div>
@@ -778,8 +1230,12 @@ export default function App() {
                                        <span>Save 33% compared to monthly</span>
                                     </li>
                                  </ul>
-                                 <button className={`w-full py-4 rounded-2xl font-bold transition-all shadow-lg text-lg ${kidsMode ? "bg-white text-rose-500 hover:bg-gray-50" : "bg-white text-indigo-600 hover:bg-gray-100"}`}>
-                                    Get 1 Year Ad-Free
+                                 <button 
+                                    onClick={!premiumState.claimedAt ? () => claimPremium('yearly', 365 * 24 * 60 * 60 * 1000) : undefined} 
+                                    disabled={!!premiumState.claimedAt}
+                                    className={`w-full py-4 rounded-2xl font-bold transition-all shadow-lg text-lg ${premiumState.claimedAt ? (premiumState.name === 'yearly' && premiumState.active ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-gray-500/20 text-gray-500 cursor-not-allowed") : kidsMode ? "bg-white text-rose-500 hover:bg-gray-50" : "bg-white text-indigo-600 hover:bg-gray-100"}`}
+                                 >
+                                    {premiumState.claimedAt ? (premiumState.name === 'yearly' && premiumState.active ? "Pass Active" : premiumState.name === 'yearly' ? "Pass Ended" : "Another Plan Active") : "Get 1 Year Ad-Free"}
                                  </button>
                               </div>
                            </div>
@@ -793,7 +1249,9 @@ export default function App() {
                         kidsMode={kidsMode}
                         isLoading={false}
                         downloadedVideos={downloadedVideos}
+                          onRemoveVideo={handleRemoveVideo}
                         onToggleDownload={handleToggleDownload}
+
                      />
                   )}
                   {isOfflineMode && (
@@ -803,7 +1261,9 @@ export default function App() {
                         kidsMode={kidsMode}
                         isLoading={false}
                         downloadedVideos={downloadedVideos}
+                          onRemoveVideo={handleRemoveVideo}
                         onToggleDownload={handleToggleDownload}
+
                         showDeleteMode={true}
                      />
                   )}
@@ -815,17 +1275,39 @@ export default function App() {
                              <img src={user.picture} alt="Profile" className="w-24 h-24 rounded-full border-4 border-white/20 mb-4 shadow-xl" />
                              <h2 className="text-2xl font-bold font-display tracking-tight mb-1">{user.name}</h2>
                              <p className="text-gray-400 text-sm mb-8">{user.email}</p>
-                             <button onClick={() => { googleLogout(); setUser(null); localStorage.removeItem("nexus_user"); }} className="px-6 py-3 rounded-xl font-bold bg-white/10 hover:bg-red-500/20 hover:text-red-400 transition-colors w-full flex items-center justify-center gap-2">
+                             <button onClick={handleLogout} className="px-6 py-3 rounded-xl font-bold bg-white/10 hover:bg-red-500/20 hover:text-red-400 transition-colors w-full flex items-center justify-center gap-2">
                                <LogOut className="w-4 h-4" /> Sign Out
                              </button>
                            </>
                          ) : (
                            <>
-                             <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center mb-6 shadow-xl">
-                               <User className="w-10 h-10 text-white" />
-                             </div>
-                             <h2 className="text-2xl font-bold font-display tracking-tight mb-3">Welcome to Nexus</h2>
-                             <p className="text-gray-400 text-sm mb-8">Sign in with Google to sync your history, favorites, and settings across all your devices.</p>
+                             {savedUser ? (
+                               <div className="w-full flex flex-col items-center">
+                                 <img src={savedUser.picture} alt="Profile" className="w-20 h-20 rounded-full border-2 border-white/20 mb-3 shadow-xl opacity-70 grayscale" />
+                                 <h2 className="text-xl font-bold font-display tracking-tight mb-2">Welcome back, {savedUser.name.split(' ')[0]}</h2>
+                                 <p className="text-gray-400 text-sm mb-6">Verify your identity to log in securely.</p>
+                                 <button 
+                                   onClick={handleBiometricLogin}
+                                   className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500 text-white font-bold py-4 rounded-xl shadow-lg transition-all mb-4"
+                                 >
+                                   <Fingerprint className="w-6 h-6" /> Biometric Login
+                                 </button>
+                                 
+                                 <div className="flex items-center w-full my-4">
+                                   <div className="flex-1 h-px bg-white/10"></div>
+                                   <span className="px-3 text-xs text-gray-500 uppercase font-bold">Or</span>
+                                   <div className="flex-1 h-px bg-white/10"></div>
+                                 </div>
+                               </div>
+                             ) : (
+                               <>
+                                 <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center mb-6 shadow-xl">
+                                   <User className="w-10 h-10 text-white" />
+                                 </div>
+                                 <h2 className="text-2xl font-bold font-display tracking-tight mb-3">Welcome to Nexus</h2>
+                               </>
+                             )}
+                             <p className="text-gray-400 text-sm mb-8">{savedUser ? "Sign in with a different account:" : "Sign in with Google to sync your history, favorites, and settings across all your devices."}</p>
                              <div className="w-full rounded-xl overflow-hidden shadow-lg border border-white/10">
                                <GoogleLogin
                                  onSuccess={(credentialResponse) => {
@@ -839,6 +1321,7 @@ export default function App() {
                                    console.log('Login Failed');
                                  }}
                                  useOneTap
+                                 use_fedcm_for_prompt={false}
                                  theme={kidsMode ? "outline" : "filled_black"}
                                  shape="pill"
                                />
@@ -848,12 +1331,20 @@ export default function App() {
                        </div>
                      </div>
                   )}
-                  {activeTab === "upload" && !isOfflineMode && (
-                     <div className="flex flex-col items-center justify-center h-full">
-                       <h2 className="text-2xl font-bold mb-4">Upload</h2>
-                       <p className="text-gray-500">Upload features coming soon.</p>
-                     </div>
-                  )}
+                  <AnimatePresence mode="wait">
+                    {activeTab === "issues" && !isOfflineMode && (
+                       <motion.div 
+                         key="issue-reporter" 
+                         initial={{ opacity: 0, y: 20 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         exit={{ opacity: 0, y: 20 }}
+                         transition={{ duration: 0.2 }}
+                         className="flex-1 w-full flex flex-col min-h-0"
+                       >
+                         <IssueReporter user={user} isPremium={premiumState.active} />
+                       </motion.div>
+                    )}
+                  </AnimatePresence>
                </main>
             </div>
 
@@ -871,17 +1362,6 @@ export default function App() {
               >
                 <Home className="w-6 h-6" />
                 <span>Home</span>
-              </button>
-              <button
-                id="mob-nav-upload"
-                onClick={() => { setActiveTab("upload"); setIsOfflineMode(false); }}
-                className="flex items-center justify-center -translate-y-2 cursor-pointer"
-              >
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg ${
-                  kidsMode ? "bg-rose-500 text-white shadow-rose-200" : "bg-white/10 border border-white/20 text-white"
-                }`}>
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"/></svg>
-                </div>
               </button>
 
               <button
@@ -916,7 +1396,7 @@ export default function App() {
               
               <button
                 id="mob-nav-kids"
-                onClick={toggleKidsMode}
+                onClick={requestToggleKidsMode}
                 className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
                   kidsMode
                     ? "text-rose-500"
@@ -926,6 +1406,21 @@ export default function App() {
                 <Baby className="w-6 h-6" />
                 <span>Kids</span>
               </button>
+              
+              {user && !kidsMode && (
+                <button
+                  id="mob-nav-issue"
+                  onClick={() => { setActiveTab("issues"); setIsOfflineMode(false); }}
+                  className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
+                    activeTab === "issues" && !isOfflineMode
+                      ? kidsMode ? "text-rose-500" : "text-white"
+                      : "text-gray-500 hover:text-white"
+                  }`}
+                >
+                  <AlertCircle className="w-6 h-6" />
+                  <span>Issues</span>
+                </button>
+              )}
             </nav>
 
             {/* 3. CORE VIDEO PLAYER OVERLAY */}
@@ -938,6 +1433,7 @@ export default function App() {
                   fontSizeClass={getFontSizeClass()}
                   isDownloaded={downloadedVideos.some((item) => item.id === selectedVideo.id)}
                   onToggleDownload={handleToggleDownload}
+
                   onToggleVault={handleToggleVault}
                 />
               )}
@@ -1143,7 +1639,9 @@ export default function App() {
                         kidsMode={kidsMode}
                         isLoading={false}
                         downloadedVideos={downloadedVideos}
+                          onRemoveVideo={handleRemoveVideo}
                         onToggleDownload={handleToggleDownload}
+
                       />
                     ) : (
                       <div className="py-20 flex flex-col items-center justify-center text-center">
@@ -1171,6 +1669,230 @@ export default function App() {
                   kidsMode={kidsMode}
                   onTriggerManualUpload={triggerServerSyncUpload}
                 />
+              )}
+            </AnimatePresence>
+
+            {/* 5. SUBSCRIPTION POPUP */}
+            <AnimatePresence>
+              {showSubscriptionPopup && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ opacity: 0 }} 
+                    animate={{ opacity: 1 }} 
+                    exit={{ opacity: 0 }} 
+                    className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+                    onClick={() => setShowSubscriptionPopup(false)}
+                  />
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }} 
+                    animate={{ opacity: 1, scale: 1, y: 0 }} 
+                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                    className={`relative z-10 w-full max-w-md rounded-3xl overflow-hidden p-8 text-center shadow-2xl ${kidsMode ? "bg-white text-rose-900 border-2 border-rose-200" : "bg-gray-900 text-white border border-gray-700"}`}
+                  >
+                    <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-6 shadow-lg ${kidsMode ? "bg-rose-100 text-rose-500" : "bg-gradient-to-br from-amber-500 to-orange-600 text-white"}`}>
+                      <Sparkles className="w-8 h-8" />
+                    </div>
+                    <h2 className="text-3xl font-bold font-display tracking-tight mb-4">Your Trial Has Ended</h2>
+                    <p className={`mb-8 ${kidsMode ? "text-rose-600" : "text-gray-400"}`}>
+                      We hope you enjoyed your ad-free experience! Subscribe now to keep enjoying unlimited, uninterrupted streaming.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      <button 
+                        onClick={() => {
+                          setShowSubscriptionPopup(false);
+                          setActiveTab("favorites");
+                        }} 
+                        className={`w-full py-4 rounded-xl font-bold transition-all shadow-lg ${kidsMode ? "bg-rose-500 text-white hover:bg-rose-600" : "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white"}`}
+                      >
+                        View Premium Plans
+                      </button>
+                      <button 
+                        onClick={() => setShowSubscriptionPopup(false)} 
+                        className={`w-full py-3 rounded-xl font-bold transition-all ${kidsMode ? "text-rose-500 hover:bg-rose-50" : "text-gray-400 hover:bg-white/5 hover:text-white"}`}
+                      >
+                        Maybe Later
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* KIDS PIN MODAL */}
+            <AnimatePresence>
+              {showKidsPinPrompt && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ opacity: 0 }} 
+                    animate={{ opacity: 1 }} 
+                    exit={{ opacity: 0 }} 
+                    className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+                    onClick={() => setShowKidsPinPrompt(false)}
+                  />
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }} 
+                    animate={{ opacity: 1, scale: 1, y: 0 }} 
+                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                    className="relative z-10 w-full max-w-sm rounded-3xl overflow-hidden p-8 text-center shadow-2xl bg-gray-900 text-white border border-gray-700"
+                  >
+                    <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-6 shadow-lg bg-rose-500/20 text-rose-500">
+                      <Lock className="w-8 h-8" />
+                    </div>
+                    <h2 className="text-2xl font-bold font-display tracking-tight mb-2">
+                      {showKidsPinPrompt === "setup" ? "Set Parental PIN" : "Enter Parental PIN"}
+                    </h2>
+                    <p className="mb-6 text-gray-400 text-sm">
+                      {showKidsPinPrompt === "setup" 
+                        ? "Create a 4-digit PIN to secure Kids Mode."
+                        : "Enter your 4-digit PIN to proceed."}
+                    </p>
+                    
+                    <form onSubmit={handleKidsPinSubmit} className="flex flex-col gap-4">
+                      <input
+                        type="password"
+                        pattern="[0-9]*"
+                        inputMode="numeric"
+                        maxLength={4}
+                        value={kidsPinInput}
+                        onChange={(e) => setKidsPinInput(e.target.value)}
+                        placeholder="••••"
+                        className="w-full bg-black/50 border border-gray-700 rounded-xl px-4 py-3 text-center text-2xl tracking-[1em] text-white focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-all placeholder:tracking-normal placeholder:text-gray-600"
+                        autoFocus
+                      />
+                      {kidsPinError && (
+                        <p className="text-rose-500 text-xs font-bold">{kidsPinError}</p>
+                      )}
+                      <div className="flex gap-3 mt-2">
+                        <button 
+                          type="button"
+                          onClick={() => {
+                            setShowKidsPinPrompt(false);
+                            setKidsPinInput("");
+                            setKidsPinError("");
+                          }}
+                          className="flex-1 py-3 rounded-xl font-bold transition-all text-gray-400 hover:bg-white/5 hover:text-white"
+                        >
+                          Cancel
+                        </button>
+                        <button 
+                          type="submit"
+                          className="flex-1 py-3 rounded-xl font-bold transition-all shadow-lg bg-rose-500 text-white hover:bg-rose-600"
+                        >
+                          Confirm
+                        </button>
+                      </div>
+                    </form>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* BIOMETRIC LOGIN MODAL */}
+            <AnimatePresence>
+              {isSimulatingBiometric && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ opacity: 0 }} 
+                    animate={{ opacity: 1 }} 
+                    exit={{ opacity: 0 }} 
+                    className="absolute inset-0 bg-black/80 backdrop-blur-md" 
+                    onClick={() => setIsSimulatingBiometric(false)}
+                  />
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }} 
+                    animate={{ opacity: 1, scale: 1, y: 0 }} 
+                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                    className="relative z-10 w-full max-w-sm rounded-3xl overflow-hidden p-8 text-center shadow-2xl bg-gray-900 border border-blue-500/30"
+                  >
+                    <h2 className="text-2xl font-bold font-display tracking-tight text-white mb-2">Biometric Scan</h2>
+                    <p className="text-gray-400 text-sm mb-8">Touch the fingerprint sensor to log in securely.</p>
+                    
+                    <motion.button
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => {
+                        // Simulate successful scan
+                        setTimeout(() => {
+                          if (savedUser) {
+                            setUser(savedUser);
+                            localStorage.setItem("nexus_user", JSON.stringify(savedUser));
+                          }
+                          setIsSimulatingBiometric(false);
+                        }, 800);
+                      }}
+                      className="w-32 h-32 mx-auto rounded-full bg-blue-500/10 border-2 border-blue-500/50 flex items-center justify-center relative overflow-hidden group cursor-pointer shadow-[0_0_30px_rgba(59,130,246,0.3)] hover:shadow-[0_0_50px_rgba(59,130,246,0.5)] transition-all"
+                    >
+                      <Fingerprint className="w-16 h-16 text-blue-400 group-hover:text-blue-300 transition-colors" />
+                      <div className="absolute inset-0 bg-blue-400/20 translate-y-full group-hover:animate-[scan_2s_ease-in-out_infinite]"></div>
+                    </motion.button>
+                    
+                    <p className="text-blue-400 text-xs mt-8 font-bold tracking-widest uppercase">Awaiting Input...</p>
+                    
+                    <button 
+                      onClick={() => setIsSimulatingBiometric(false)}
+                      className="mt-6 text-gray-500 hover:text-white text-sm transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            {/* APK OTA UPDATE MODAL */}
+            <AnimatePresence>
+              {apkUpdateAvailable && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ opacity: 0 }} 
+                    animate={{ opacity: 1 }} 
+                    exit={{ opacity: 0 }} 
+                    className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+                  />
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9, y: 20 }} 
+                    animate={{ opacity: 1, scale: 1, y: 0 }} 
+                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                    className="relative z-10 w-full max-w-md rounded-3xl overflow-hidden p-8 text-center shadow-2xl bg-gray-900 border border-indigo-500/30"
+                  >
+                    <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-6 shadow-lg bg-indigo-500/20 text-indigo-400">
+                      <Download className="w-8 h-8 animate-bounce" />
+                    </div>
+                    <h2 className="text-2xl font-bold font-display tracking-tight text-white mb-2">Update Available</h2>
+                    <p className="text-indigo-400 text-sm font-bold mb-4">Version {apkUpdateAvailable.version}</p>
+                    
+                    <div className="text-left bg-black/30 rounded-xl p-4 mb-8">
+                      <p className="text-xs text-gray-400 font-bold uppercase tracking-wider mb-2">What's New</p>
+                      <ul className="space-y-2">
+                        {apkUpdateAvailable.changes.map((change, idx) => (
+                          <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
+                            <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{change}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    
+                    <div className="flex flex-col gap-3">
+                      <a 
+                        href={apkUpdateAvailable.apkUrl} 
+                        download="nexus-app.apk"
+                        target="_top"
+                        onClick={() => {
+                          setTimeout(() => setApkUpdateAvailable(null), 500);
+                        }}
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(79,70,229,0.3)] transition-all"
+                      >
+                        <Download className="w-5 h-5" /> Download Update
+                      </a>
+                      <button 
+                        onClick={() => setApkUpdateAvailable(null)}
+                        className="w-full py-3 rounded-xl font-bold transition-all text-gray-400 hover:bg-white/5 hover:text-white"
+                      >
+                        Remind Me Later
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
               )}
             </AnimatePresence>
 

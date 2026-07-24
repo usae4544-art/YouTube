@@ -52,3 +52,9 @@ export interface SearchSuggestionResponse {
   safe: boolean;
   safetyExplanation?: string;
 }
+
+export interface GoogleUser {
+  email: string;
+  name: string;
+  picture: string;
+}

@@ -15,9 +15,25 @@ interface VideoGridProps {
   showDeleteMode?: boolean;
   lastVideoElementRef?: (node: HTMLDivElement | null) => void;
   isLoadingMore?: boolean;
+  onRemoveVideo?: (video: YouTubeVideo) => void;
 }
 
-export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading, downloadedVideos = [], onToggleDownload, onToggleVault, showDeleteMode = false, lastVideoElementRef, isLoadingMore = false }: VideoGridProps) {
+export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading, downloadedVideos = [], onToggleDownload, onToggleVault, showDeleteMode = false, lastVideoElementRef, isLoadingMore = false, onRemoveVideo }: VideoGridProps) {
+  const [longPressId, setLongPressId] = React.useState<string | null>(null);
+  const timerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  const startPress = (video: YouTubeVideo) => {
+    timerRef.current = setTimeout(() => {
+      setLongPressId(video.id);
+    }, 600);
+  };
+
+  const cancelPress = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
   
   // Skeleton count helper
   const skeletons = Array.from({ length: 8 });
@@ -83,7 +99,16 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading, 
         <motion.div
           ref={isLastVideo ? lastVideoElementRef : null}
           key={video.id + "-" + index}
-          onClick={() => onSelectVideo(video)}
+          onClick={() => {
+            if (longPressId === video.id) return;
+            onSelectVideo(video);
+          }}
+          onMouseDown={() => startPress(video)}
+          onMouseUp={cancelPress}
+          onMouseLeave={cancelPress}
+          onTouchStart={() => startPress(video)}
+          onTouchEnd={cancelPress}
+          onTouchMove={cancelPress}
           whileTap={{ scale: 0.96 }}
           className={`group flex flex-col cursor-pointer rounded-2xl overflow-hidden transition-all duration-400 p-1 relative ${
             kidsMode
@@ -99,6 +124,27 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading, 
             delay: Math.min((index % 20) * 0.05, 0.4) // Using % 20 so newly loaded videos also animate
           }}
         >
+          {longPressId === video.id && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm rounded-2xl flex-col gap-3" onClick={(e) => { e.stopPropagation(); setLongPressId(null); }}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (onRemoveVideo) {
+                    onRemoveVideo(video);
+                  }
+                  setLongPressId(null);
+                }}
+                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-xl flex items-center gap-2 transition-colors"
+              >
+                <Trash2 className="w-5 h-5" /> Remove Video
+              </button>
+              <button 
+                className="bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
           {/* Card Thumbnail Stage */}
           <div className="relative aspect-video w-full rounded-xl overflow-hidden shadow-inner bg-black">
             <img

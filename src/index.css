@@ -111,6 +111,12 @@
   }
 }
 
+@keyframes scan {
+  0% { transform: translateY(-100%); }
+  50% { transform: translateY(100%); }
+  100% { transform: translateY(-100%); }
+}
+
 .animate-glow-mesh-1 {
   animation: pulseGlow 20s infinite ease-in-out;
 }
@@ -125,7 +131,28 @@ body {
   background-color: #050508;
   color: #f3f4f6;
   font-family: var(--font-sans);
-  overflow-x: hidden;
+  overflow: hidden; /* Prevent body scroll to stop layout shift */
+  overscroll-behavior-y: none;
+}
+
+html {
+  overscroll-behavior-y: none;
+}
+
+.contain-content {
+  contain: content;
+}
+
+input, button, textarea, select {
+  touch-action: manipulation;
+}
+
+.will-change-transform {
+  will-change: transform;
+}
+
+.transform-gpu {
+  transform: translateZ(0);
 }
 
 /* Accessible Font Sizing system */

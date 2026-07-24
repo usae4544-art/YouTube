@@ -35,10 +35,15 @@ export default function IntroAnimation({ onComplete }: IntroAnimationProps) {
   // Synthesis of an elegant cinematic "whoosh" sound using the browser's Web Audio API
   function playCinematicSound() {
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      
-      const ctx = new AudioCtx();
+      let ctx: AudioContext;
+      if (window.AudioContext) {
+        ctx = new AudioContext();
+      } else if ((window as any).webkitAudioContext) {
+        const WebkitAudioContext = (window as any).webkitAudioContext;
+        ctx = new WebkitAudioContext();
+      } else {
+        return;
+      }
       
       // Low rumble synth
       const osc1 = ctx.createOscillator();
