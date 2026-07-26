@@ -2,14 +2,16 @@ import React, { useState, useEffect, useRef } from "react";
 import { Search, Sparkles, X, Clock, AlertTriangle, HelpCircle, Mic, History } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { SearchSuggestionResponse } from "../types";
+import VirtualKeyboard from "./VirtualKeyboard";
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
   kidsMode: boolean;
   fontSizeClass: string;
+  onFocusChange?: (isFocused: boolean) => void;
 }
 
-export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchBarProps) {
+const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchBarProps) => {
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [safetyCheck, setSafetyCheck] = useState<{ safe: boolean; explanation?: string }>({ safe: true });
@@ -18,6 +20,7 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
   const [history, setHistory] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState("");
+  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleVoiceSearch = () => {
@@ -107,11 +110,21 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
     };
   }, []);
 
-  // Debounced API Call for Suggestions
+  // Debounced API Call for Suggestions & Instant Search
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen && !inputValue) return;
     const timer = setTimeout(async () => {
       setIsLoading(true);
+      
+      // Instant search trigger
+      if (inputValue.trim() !== "") {
+        if (safetyCheck.safe) {
+          onSearch(inputValue);
+        }
+      } else {
+        onSearch("");
+      }
+
       try {
         const res = await fetch("/api/suggest", {
           method: "POST",
@@ -130,13 +143,13 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
       } finally {
         setIsLoading(false);
       }
-    }, 200);
+    }, 400);
 
     return () => clearTimeout(timer);
   }, [inputValue, kidsMode, isOpen]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (e?: React.FormEvent | Event) => {
+    if (e && e.preventDefault) e.preventDefault();
     if (!inputValue.trim()) return;
     
     if (!safetyCheck.safe) {
@@ -148,6 +161,7 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
     addToHistory(inputValue);
     onSearch(inputValue);
     setIsOpen(false);
+    setIsKeyboardOpen(false);
   };
 
   const selectSuggestion = (val: string) => {
@@ -155,6 +169,7 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
     addToHistory(val);
     onSearch(val);
     setIsOpen(false);
+    setIsKeyboardOpen(false);
   };
 
   const handleClear = () => {
@@ -193,12 +208,12 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
           {voiceError}
         </motion.div>
       )}
-      <div className="flex items-center gap-4">
-        <form onSubmit={handleSubmit} className="relative flex-1">
+      <div className="flex items-center gap-2 sm:gap-4">
+        <form onSubmit={handleSubmit} className="relative flex-1 min-w-0">
           <div className="flex items-center w-full shadow-sm rounded-full">
             {/* Input Wrapper */}
             <div
-              className={`flex-1 flex items-center relative transition-all duration-300 rounded-l-full border ${
+              className={`flex-1 flex items-center min-w-0 relative transition-all duration-300 rounded-l-full border ${
                 kidsMode
                   ? "bg-white/90 border-rose-200 focus-within:border-rose-400 focus-within:bg-white focus-within:ml-0"
                   : "bg-[#121212] border-white/10 focus-within:border-[#3ea6ff] focus-within:bg-[#121212]"
@@ -213,34 +228,39 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
               <input
                 id="search-input"
                 type="text"
+                inputMode="none" // Prevent native keyboard
+                readOnly // Adding readOnly is a more robust way to prevent native keyboard on mobile
                 value={inputValue}
                 onChange={(e) => {
                   setInputValue(e.target.value);
                   setIsOpen(true);
                 }}
-                onFocus={() => setIsOpen(true)}
+                onFocus={() => {
+                  setIsOpen(true);
+                  setIsKeyboardOpen(true);
+                  if (onFocusChange) onFocusChange(true);
+                }}
                 onBlur={() => {
-                  // Defer blur state updates to avoid layout thrashing during keyboard close
-                  requestAnimationFrame(() => {
-                    setTimeout(() => setIsOpen(false), 200);
-                  });
+                  if (onFocusChange) onFocusChange(false);
+                  // Note: The virtual keyboard component is expected to close itself or handle external clicks.
+                  // Removing blur-based closure of the keyboard directly since clicking the virtual keyboard might blur the input.
                 }}
                 placeholder={
-                  kidsMode ? "Search fun cartoons, animals, and space secrets! 🦕🚀" : "Search"
+                  kidsMode ? "Search fun cartoons! 🦕" : "Search"
                 }
-                className={`w-full py-2.5 sm:py-3 pl-5 sm:pl-2 pr-14 text-base sm:text-lg bg-transparent outline-none border-none font-sans placeholder-gray-500 tracking-wide ${
+                className={`w-full min-w-0 py-2 sm:py-3 pl-4 sm:pl-2 pr-12 sm:pr-14 text-sm sm:text-lg bg-transparent outline-none border-none font-sans placeholder-gray-500 tracking-wide ${
                   kidsMode ? "text-rose-900 font-medium" : "text-white"
                 }`}
               />
 
               {/* Right Action Icons (Clear / Sparkle loading indicator) */}
-              <div className="absolute right-3 flex items-center gap-1.5">
+              <div className="absolute right-2 sm:right-3 flex items-center gap-1 sm:gap-1.5">
                 {isLoading && (
                   <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
                   >
-                    <Sparkles className={`w-5 h-5 ${kidsMode ? "text-rose-400" : "text-gray-400"}`} />
+                    <Sparkles className={`w-4 h-4 sm:w-5 sm:h-5 ${kidsMode ? "text-rose-400" : "text-gray-400"}`} />
                   </motion.div>
                 )}
                 {inputValue && (
@@ -248,11 +268,11 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
                     id="search-clear-btn"
                     type="button"
                     onClick={handleClear}
-                    className={`p-1.5 rounded-full transition-colors ${
+                    className={`p-1 sm:p-1.5 rounded-full transition-colors ${
                       kidsMode ? "hover:bg-rose-200/50 text-rose-500" : "hover:bg-white/10 text-gray-400 hover:text-white"
                     }`}
                   >
-                    <X className="w-5 h-5" />
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                 )}
               </div>
@@ -261,14 +281,14 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
             {/* Search Button (YouTube Style) */}
             <button
               type="submit"
-              className={`px-5 sm:px-6 py-2.5 sm:py-3 flex items-center justify-center cursor-pointer transition-colors rounded-r-full border-y border-r border-l-0 ${
+              className={`px-4 sm:px-6 py-2 sm:py-3 flex items-center justify-center shrink-0 cursor-pointer transition-colors rounded-r-full border-y border-r border-l-0 ${
                 kidsMode
                   ? "bg-rose-100 border-rose-200 hover:bg-rose-200 text-rose-600"
                   : "bg-[#222222] border-white/10 hover:bg-[#303030] text-gray-200"
               }`}
               aria-label="Search"
             >
-              <Search className="w-5 h-5" />
+              <Search className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
 
@@ -342,6 +362,20 @@ export default function SearchBar({ onSearch, kidsMode, fontSizeClass }: SearchB
           <Mic className="w-5 h-5" />
         </button>
       </div>
+
+      <VirtualKeyboard
+        isOpen={isKeyboardOpen}
+        onClose={() => {
+          setIsKeyboardOpen(false);
+          setIsOpen(false);
+        }}
+        inputValue={inputValue}
+        onChange={setInputValue}
+        onSubmit={() => handleSubmit()}
+        kidsMode={kidsMode}
+      />
     </div>
   );
 }
+
+export default React.memo(SearchBar);

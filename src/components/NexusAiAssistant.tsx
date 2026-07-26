@@ -75,21 +75,41 @@ export function NexusAiAssistant({ isOpen, onClose, kidsMode }: { isOpen: boolea
           <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-none">
             {messages.map((msg, i) => (
               <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-2xl ${
-                  msg.role === 'user' 
-                    ? (kidsMode ? "bg-rose-500 text-white rounded-br-sm" : "bg-indigo-600 text-white rounded-br-sm")
-                    : (kidsMode ? "bg-gray-100 text-gray-800 rounded-bl-sm" : "bg-white/10 text-gray-200 rounded-bl-sm")
-                }`}>
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                </div>
+                {msg.role === 'ai' ? (
+                  <div className="w-[90%] bg-[#0f172a] border border-[#1e293b] rounded-xl p-4 shadow-[0_0_20px_rgba(56,189,248,0.15)] font-mono text-[#f8fafc]">
+                    <div className="flex items-center gap-1.5 mb-3">
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]"></span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"></span>
+                      <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]"></span>
+                      <span className="text-xs text-[#94a3b8] ml-2">DeepSeek AI Response</span>
+                    </div>
+                    <div className="text-sm leading-relaxed text-[#38bdf8] drop-shadow-[0_0_8px_rgba(56,189,248,0.4)] whitespace-pre-wrap flex flex-wrap">
+                      {msg.content}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`max-w-[85%] p-3 rounded-2xl ${
+                    msg.role === 'user' 
+                      ? (kidsMode ? "bg-rose-500 text-white rounded-br-sm" : "bg-indigo-600 text-white rounded-br-sm")
+                      : (kidsMode ? "bg-gray-100 text-gray-800 rounded-bl-sm" : "bg-white/10 text-gray-200 rounded-bl-sm")
+                  }`}>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                  </div>
+                )}
               </div>
             ))}
             {isTyping && (
               <div className="flex justify-start">
-                <div className={`p-3 rounded-2xl rounded-bl-sm flex items-center gap-1 ${kidsMode ? "bg-gray-100" : "bg-white/10"}`}>
-                  <div className={`w-1.5 h-1.5 rounded-full animate-bounce ${kidsMode ? "bg-rose-400" : "bg-indigo-400"}`} style={{ animationDelay: '0ms' }} />
-                  <div className={`w-1.5 h-1.5 rounded-full animate-bounce ${kidsMode ? "bg-rose-400" : "bg-indigo-400"}`} style={{ animationDelay: '150ms' }} />
-                  <div className={`w-1.5 h-1.5 rounded-full animate-bounce ${kidsMode ? "bg-rose-400" : "bg-indigo-400"}`} style={{ animationDelay: '300ms' }} />
+                <div className="w-[90%] bg-[#0f172a] border border-[#1e293b] rounded-xl p-4 shadow-[0_0_20px_rgba(56,189,248,0.15)] font-mono text-[#f8fafc]">
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"></span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]"></span>
+                    <span className="text-xs text-[#94a3b8] ml-2">DeepSeek AI Response</span>
+                  </div>
+                  <div className="text-sm leading-relaxed text-[#38bdf8] drop-shadow-[0_0_8px_rgba(56,189,248,0.4)]">
+                    <span className="animate-pulse font-bold">|</span>
+                  </div>
                 </div>
               </div>
             )}

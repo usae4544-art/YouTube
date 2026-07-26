@@ -1,0 +1,2 @@
+#!/bin/bash
+sed -i 's/const handleKeyClick = (key: string, e: React.MouseEvent) => {/const lastKeyTimeRef = React.useRef(0);\n  const handleKeyClick = (key: string, e: React.MouseEvent | React.TouchEvent) => {\n    if ("preventDefault" in e) e.preventDefault();\n    const now = Date.now();\n    if (now - lastKeyTimeRef.current < 150) return;\n    lastKeyTimeRef.current = now;/g' src/components/KidsPinPad.tsx

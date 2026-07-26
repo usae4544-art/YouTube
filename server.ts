@@ -5,12 +5,22 @@ import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import bcrypt from "bcrypt";
+import rateLimit from "express-rate-limit";
+import { body, validationResult } from "express-validator";
+import xss from "xss";
+import helmet from "helmet";
 
 // Load local environment variables if any (like in local dev)
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Security Middleware (Hides express headers, sets CSP, etc.)
+app.use(helmet({
+  contentSecurityPolicy: false, // Disabled for dev flexibility, but helmet hides x-powered-by
+}));
 
 // Middleware
 app.use(express.json({ limit: '200mb' }));
@@ -59,6 +69,198 @@ function writeSyncSessions(sessions: Record<string, any>) {
     console.error("Error writing sync sessions:", err);
   }
 }
+
+// ---------------------------------------------------------
+// SECURE AUTHENTICATION (VAULT LOGIN)
+// ---------------------------------------------------------
+
+const AUTH_FILE_PATH = path.join(SYNC_DIR, "auth_vault.json");
+if (!fs.existsSync(AUTH_FILE_PATH)) {
+  fs.writeFileSync(AUTH_FILE_PATH, JSON.stringify({}), "utf8");
+}
+
+function readAuth(): Record<string, string> {
+  try {
+    return JSON.parse(fs.readFileSync(AUTH_FILE_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeAuth(data: Record<string, string>) {
+  fs.writeFileSync(AUTH_FILE_PATH, JSON.stringify(data), "utf8");
+}
+
+// Limit Login Attempts to prevent brute force attacks
+const loginRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 login requests per windowMs
+  message: { error: "Too many login attempts. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.post(
+  "/api/auth/setup",
+  [
+    body("deviceId").isString().trim().escape(),
+    body("password").isString().isLength({ min: 4 }).withMessage("Password too short")
+  ],
+  async (req: any, res: any) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: "Invalid input provided" });
+    }
+    
+    const { deviceId, password } = req.body;
+    const authData = readAuth();
+    
+    // Hash password before saving
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    
+    authData[deviceId] = hashedPassword;
+    writeAuth(authData);
+    
+    // Hide Auth Details: Don't return the hash or password
+    res.json({ success: true });
+  }
+);
+
+app.post(
+  "/api/auth/login",
+  loginRateLimiter,
+  [
+    body("deviceId").isString().trim().escape(),
+    body("password").isString()
+  ],
+  async (req: any, res: any) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: "Invalid credentials" }); // Generic message to hide details
+    }
+    
+    const { deviceId, password } = req.body;
+    const authData = readAuth();
+    const storedHash = authData[deviceId];
+    
+    if (!storedHash) {
+      // Return generic error even if deviceId doesn't exist to prevent user enumeration
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    
+    const isMatch = await bcrypt.compare(password, storedHash);
+    
+    if (isMatch) {
+      res.json({ success: true });
+    } else {
+      res.status(401).json({ error: "Invalid credentials" });
+    }
+  }
+);
+
+// ---------------------------------------------------------
+// CUSTOM USER REGISTRATION & LOGIN
+// ---------------------------------------------------------
+
+const USER_DB_PATH = path.join(SYNC_DIR, "users.json");
+if (!fs.existsSync(USER_DB_PATH)) {
+  fs.writeFileSync(USER_DB_PATH, JSON.stringify({}), "utf8");
+}
+
+function readUsers(): Record<string, any> {
+  try {
+    return JSON.parse(fs.readFileSync(USER_DB_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function writeUsers(data: Record<string, any>) {
+  fs.writeFileSync(USER_DB_PATH, JSON.stringify(data, null, 2), "utf8");
+}
+
+const registerRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 registrations per IP
+  message: { error: "Too many registrations. Please try again later." },
+});
+
+app.post(
+  "/api/register",
+  registerRateLimiter,
+  [
+    body("email").isEmail().withMessage("Invalid email address").normalizeEmail(),
+    body("name").isString().trim().isLength({ min: 2 }).withMessage("Name must be at least 2 characters").customSanitizer(val => xss(val)),
+    body("password").isString().isLength({ min: 8 }).withMessage("Password must be at least 8 characters")
+      .matches(/[A-Za-z]/).withMessage("Password must contain at least one letter")
+      .matches(/[0-9]/).withMessage("Password must contain at least one number")
+      .matches(/[\W_]/).withMessage("Password must contain at least one symbol"),
+  ],
+  async (req: any, res: any) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: "Invalid inputs", details: errors.array() });
+    }
+
+    const { email, name, password } = req.body;
+    const users = readUsers();
+
+    if (users[email]) {
+      return res.status(400).json({ error: "An account with this email already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    users[email] = {
+      name,
+      email,
+      passwordHash: hashedPassword,
+      createdAt: new Date().toISOString()
+    };
+    
+    writeUsers(users);
+    
+    res.json({ success: true, message: "Registration successful" });
+  }
+);
+
+app.post(
+  "/api/login",
+  loginRateLimiter,
+  [
+    body("email").isEmail().normalizeEmail(),
+    body("password").isString()
+  ],
+  async (req: any, res: any) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const { email, password } = req.body;
+    const users = readUsers();
+    
+    const user = users[email];
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    
+    const isMatch = await bcrypt.compare(password, user.passwordHash);
+    if (isMatch) {
+      res.json({ 
+        success: true, 
+        user: { 
+          email: user.email, 
+          name: user.name,
+          picture: "" 
+        } 
+      });
+    } else {
+      res.status(401).json({ error: "Invalid credentials" });
+    }
+  }
+);
 
 // ---------------------------------------------------------
 // API ROUTES
@@ -205,7 +407,7 @@ app.post("/api/suggest", async (req, res) => {
     const contentPrompt = `User Input: "${q}"\nRecent Search History: ${history.length ? JSON.stringify(history.slice(0, 5)) : "None"}\nGenerate exactly 4 search suggestions as a JSON array.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash-lite",
+      model: "gemini-3.5-flash",
       contents: contentPrompt,
       config: {
         systemInstruction: systemPrompt,
@@ -266,7 +468,7 @@ app.post("/api/gemini/summarize", async (req, res) => {
     const systemPrompt = "You are an expert video analyst. Analyze the video details provided (title, description, channel, tags) and generate: 1. A 2-sentence summary. 2. Exactly 3 key highlights/bullets. 3. The general mood or sentiment of the video. 4. A kids-safety rating ('Approved', 'Requires Parent Supervision', 'Not recommended for Kids') with a brief 1-sentence explanation.";
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash-lite",
+      model: "gemini-3.5-flash",
       contents: `Analyze this video:
 Title: ${title}
 Channel: ${channelTitle || "Unknown"}
@@ -324,7 +526,7 @@ app.post("/api/gemini/chat", async (req, res) => {
       : "You are an expert video assistant. Answer the user's question about the video context provided. Be concise, helpful, and direct.";
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash-lite",
+      model: "gemini-3.5-flash",
       contents: `Context Video:
 Title: ${videoContext.title}
 Channel: ${videoContext.channelTitle || "Unknown"}
@@ -362,7 +564,7 @@ app.post("/api/gemini/assistant", async (req, res) => {
       : "You are Nexus AI, an intelligent, helpful, and highly capable assistant deeply integrated into the Nexus application. Answer the user's questions clearly, concisely, and professionally. You know about the app's features: Video exploration, AI summaries, safe Kids Mode, and offline downloads.";
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash-lite",
+      model: "gemini-3.5-flash",
       contents: message,
       config: {
         systemInstruction: systemPrompt
@@ -403,7 +605,18 @@ app.get("/api/subscription/:email", (req, res) => {
   }
 });
 
-app.post("/api/subscription/:email", (req, res) => {
+app.post(
+  "/api/subscription/:email",
+  [
+    body("name").isString().trim().escape(),
+    body("durationMs").isNumeric()
+  ],
+  (req: any, res: any) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: "Invalid inputs", details: errors.array() });
+    }
+
   const { email } = req.params;
   const { name, durationMs } = req.body;
   const subs = readSubscriptions();
@@ -503,7 +716,19 @@ app.get("/api/sync/get/:code", (req, res) => {
 });
 
 // 10. Cross-Device Sync - Update Session Data
-app.post("/api/sync/update/:code", (req, res) => {
+app.post(
+  "/api/sync/update/:code",
+  [
+    body("favorites").optional().isArray(),
+    body("history").optional().isArray(),
+    body("playlists").optional().isArray(),
+    body("preferences").optional().isObject()
+  ],
+  (req: any, res: any) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: "Invalid inputs", details: errors.array() });
+    }
   try {
     const code = req.params.code.toUpperCase();
     const { favorites, history, playlists, preferences } = req.body;
@@ -580,7 +805,21 @@ app.get("/api/issues", (req, res) => {
   res.json(issues);
 });
 
-app.post("/api/issues", (req, res) => {
+app.post("/api/issues", 
+  [
+    body("userEmail").isEmail().withMessage("Valid email required").normalizeEmail(),
+    body("userName").optional().isString().trim().customSanitizer(value => xss(value)),
+    body("description").isString().notEmpty().withMessage("Description is required").customSanitizer(value => xss(value)),
+    body("attachment").optional().isString(),
+    body("attachmentType").optional().isString().trim().escape(),
+    body("isImportant").optional().isBoolean()
+  ],
+  (req: any, res: any) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: "Invalid inputs", details: errors.array() });
+    }
+
   const { userEmail, userPicture, userName, description, attachment, attachmentType, isImportant } = req.body;
   if (!userEmail) return res.status(401).json({ error: "Unauthorized" });
 
@@ -596,16 +835,30 @@ app.post("/api/issues", (req, res) => {
     replies: [],
     createdAt: new Date().toISOString()
   };
+
   issues.push(newIssue);
   broadcastIssues();
   res.json(newIssue);
 });
 
-app.post("/api/issues/:id/reply", (req, res) => {
+app.post("/api/issues/:id/reply", 
+  [
+    body("userEmail").isEmail().normalizeEmail(),
+    body("userName").optional().isString().trim().customSanitizer(value => xss(value)),
+    body("description").isString().notEmpty().customSanitizer(value => xss(value)),
+    body("attachment").optional().isString(),
+    body("attachmentType").optional().isString().trim().escape()
+  ],
+  (req: any, res: any) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ error: "Invalid inputs", details: errors.array() });
+    }
+
   const { id } = req.params;
   const { userEmail, userPicture, userName, description, attachment, attachmentType } = req.body;
   
-  const issue = issues.find(i => i.id === id);
+  const issue = issues.find((i: any) => i.id === id);
   if (!issue) return res.status(404).json({ error: "Issue not found" });
   
   if (!issue.replies) issue.replies = [];
@@ -630,6 +883,77 @@ app.post("/api/issues/:id/reply", (req, res) => {
 // VITE DEV SERVER / PRODUCTION SERVING
 // ---------------------------------------------------------
 async function startServer() {
+  // Mock Ad API
+  app.get("/api/ads/inventory", (req, res) => {
+    res.json({
+      ads: [
+        "https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=1000&auto=format&fit=crop", // Shoes ad
+        "https://images.unsplash.com/photo-1523275335684-37898b6baf30?q=80&w=1000&auto=format&fit=crop", // Watch ad
+        "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=1000&auto=format&fit=crop"  // Headphones ad
+      ]
+    });
+  });
+
+  const adScanServerCache = new Map<string, any>([
+    ["https://images.unsplash.com/photo-1542291026-7eec264c27ff?q=80&w=1000&auto=format&fit=crop", { is_safe: true, nsfw_score: 0.0, reason: "Pre-scanned shoes ad." }],
+    ["https://images.unsplash.com/photo-1523275335684-37898b6baf30?q=80&w=1000&auto=format&fit=crop", { is_safe: true, nsfw_score: 0.0, reason: "Pre-scanned watch ad." }],
+    ["https://images.unsplash.com/photo-1505740420928-5e560c06d30e?q=80&w=1000&auto=format&fit=crop", { is_safe: true, nsfw_score: 0.0, reason: "Pre-scanned headphones ad." }]
+  ]);
+
+  app.post("/api/ads/scan", async (req, res) => {
+    try {
+      const { imageUrl } = req.body;
+      if (!imageUrl) return res.status(400).json({ error: "No imageUrl provided" });
+
+      if (adScanServerCache.has(imageUrl)) {
+        return res.json(adScanServerCache.get(imageUrl));
+      }
+
+      const imgRes = await fetch(imageUrl);
+      if (!imgRes.ok) throw new Error("Failed to fetch image");
+      const buffer = await imgRes.arrayBuffer();
+      const mimeType = imgRes.headers.get("content-type") || "image/jpeg";
+      
+      const prompt = "Analyze this ad creative. Determine if it is safe for all audiences. Look for adult content, NSFW, graphic violence, or highly inappropriate material. Return ONLY a JSON object with 'is_safe' (boolean), 'nsfw_score' (number 0.0 to 1.0), and 'reason' (string explanation).";
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: [
+          prompt,
+          {
+            inlineData: {
+              data: Buffer.from(buffer).toString("base64"),
+              mimeType,
+            }
+          }
+        ],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              is_safe: { type: Type.BOOLEAN },
+              nsfw_score: { type: Type.NUMBER },
+              reason: { type: Type.STRING }
+            },
+            required: ["is_safe", "nsfw_score", "reason"]
+          }
+        }
+      });
+      
+      if (response.text) {
+        const result = JSON.parse(response.text);
+        adScanServerCache.set(imageUrl, result);
+        res.json(result);
+      } else {
+        res.json({ is_safe: true, nsfw_score: 0.0, reason: "No response, defaulting to safe" });
+      }
+    } catch (error) {
+      // Return fallback to prevent frontend crashes on rate limit
+      res.json({ is_safe: true, nsfw_score: 0.0, reason: "Error parsing ad, defaulted to safe." });
+    }
+  });
+
   if (process.env.NODE_ENV !== "production") {
     // Development Mode
     const vite = await createViteServer({

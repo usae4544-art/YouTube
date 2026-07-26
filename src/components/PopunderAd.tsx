@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-export default function PopunderAd({ refreshKey = 0 }: { refreshKey?: number }) {
+export default function PopunderAd({ refreshKey = 0, isVisible = true }: { refreshKey?: number, isVisible?: boolean }) {
   useEffect(() => {
     const scriptId = 'popunder-ad-script';
     
@@ -25,5 +25,21 @@ export default function PopunderAd({ refreshKey = 0 }: { refreshKey?: number }) 
     };
   }, [refreshKey]);
 
-  return null;
+  return (
+    <style dangerouslySetInnerHTML={{ __html: `
+      ${!isVisible ? `
+        body > *:not(#root):not(script):not(style) {
+          display: none !important;
+          opacity: 0 !important;
+          pointer-events: none !important;
+          height: 0 !important;
+          width: 0 !important;
+        }
+        html, body {
+          padding-top: 0 !important;
+          margin-top: 0 !important;
+        }
+      ` : ''}
+    `}} />
+  );
 }

@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "motion/react";
-import { Play, Eye, Calendar, Sparkles, AlertCircle , DownloadCloud, Trash2, CheckCircle2, Lock} from "lucide-react";
+import { Play, Eye, Calendar, Sparkles, AlertCircle ,  Trash2, CheckCircle2, Lock} from "lucide-react";
 import { YouTubeVideo } from "../types";
 import { formatViews, formatRelativeDate } from "../utils";
 
@@ -9,8 +9,6 @@ interface VideoGridProps {
   onSelectVideo: (video: YouTubeVideo) => void;
   kidsMode: boolean;
   isLoading: boolean;
-  downloadedVideos?: YouTubeVideo[];
-  onToggleDownload?: (video: YouTubeVideo) => void;
   onToggleVault?: (video: YouTubeVideo) => void;
   showDeleteMode?: boolean;
   lastVideoElementRef?: (node: HTMLDivElement | null) => void;
@@ -18,7 +16,7 @@ interface VideoGridProps {
   onRemoveVideo?: (video: YouTubeVideo) => void;
 }
 
-export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading, downloadedVideos = [], onToggleDownload, onToggleVault, showDeleteMode = false, lastVideoElementRef, isLoadingMore = false, onRemoveVideo }: VideoGridProps) {
+export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading,  onToggleVault, showDeleteMode = false, lastVideoElementRef, isLoadingMore = false, onRemoveVideo }: VideoGridProps) {
   const [longPressId, setLongPressId] = React.useState<string | null>(null);
   const timerRef = React.useRef<NodeJS.Timeout | null>(null);
 
@@ -93,7 +91,6 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading, 
     <>
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6 2xl:gap-8">
       {videos.map((video, index) => {
-        const isDownloaded = downloadedVideos.some(v => v.id === video.id);
         const isLastVideo = videos.length === index + 1;
         return (
         <motion.div
@@ -154,45 +151,19 @@ export default function VideoGrid({ videos, onSelectVideo, kidsMode, isLoading, 
               className="w-full h-full object-cover transform transition-transform duration-700 group-hover:scale-105"
             />
             
-            {/* Quick Action Buttons (Download / Trash) */}
-            {(onToggleDownload || showDeleteMode) && (
+            {/* Quick Action Buttons (Vault) */}
+            {onToggleVault && (
               <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
-                {showDeleteMode ? (
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (onToggleDownload) onToggleDownload(video);
-                    }}
-                    className="p-1.5 bg-black/60 hover:bg-red-600/90 rounded-full text-white backdrop-blur-sm transition-colors border border-white/10"
-                    title="Delete Download"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                ) : onToggleDownload ? (
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleDownload(video);
-                    }}
-                    className={`p-1.5 rounded-full backdrop-blur-sm transition-colors border ${isDownloaded ? "bg-emerald-500/80 text-white border-emerald-400" : "bg-black/60 hover:bg-white/20 text-white border-white/10"}`}
-                    title={isDownloaded ? "Downloaded" : "Download Video"}
-                  >
-                    {isDownloaded ? <CheckCircle2 className="w-4 h-4" /> : <DownloadCloud className="w-4 h-4" />}
-                  </button>
-                ) : null}
-                
-                {onToggleVault && (
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onToggleVault(video);
-                    }}
-                    className="p-1.5 rounded-full backdrop-blur-sm transition-colors border bg-black/60 hover:bg-violet-500/80 text-white border-white/10"
-                    title="Add to Vault"
-                  >
-                    <Lock className="w-4 h-4" />
-                  </button>
-                )}
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleVault(video);
+                  }}
+                  className="p-1.5 rounded-full backdrop-blur-sm transition-colors border bg-black/60 hover:bg-violet-500/80 text-white border-white/10"
+                  title="Add to Vault"
+                >
+                  <Lock className="w-4 h-4" />
+                </button>
               </div>
             )}
             

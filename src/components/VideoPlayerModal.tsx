@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { 
-  X, Sparkles, Heart, ThumbsUp, MessageSquare, Download, Share2, 
+  X, Sparkles, Heart, ThumbsUp, MessageSquare, Share2, 
   Smile, ShieldCheck, HeartCrack, RefreshCw, SignalHigh,
-  DownloadCloud, Trash2, Headphones, Maximize2, Play
+  Trash2, Headphones, Maximize2, Play
 , Lock, Send} from "lucide-react";
 import { YouTubeVideo, YouTubeComment, AISummary } from "../types";
 import { formatViews } from "../utils";
@@ -13,8 +13,6 @@ interface VideoPlayerModalProps {
   onClose: () => void;
   kidsMode: boolean;
   fontSizeClass: string;
-  isDownloaded: boolean;
-  onToggleDownload: (video: YouTubeVideo) => void;
   onToggleVault?: (video: YouTubeVideo) => void;
 }
 
@@ -23,8 +21,8 @@ export default function VideoPlayerModal({
   onClose, 
   kidsMode, 
   fontSizeClass,
-  isDownloaded,
-  onToggleDownload,
+  
+  
   onToggleVault
 }: VideoPlayerModalProps) {
   const [comments, setComments] = useState<YouTubeComment[]>([]);
@@ -70,9 +68,6 @@ export default function VideoPlayerModal({
   const [liked, setLiked] = useState(false);
   const [isAudioMode, setIsAudioMode] = useState(false);
   
-  // Simulated Downloading states
-  const [downloadProgress, setDownloadProgress] = useState<number | null>(null);
-  const [isDownloading, setIsDownloading] = useState(false);
 
   // Fetch comments for this video
   useEffect(() => {
@@ -204,33 +199,6 @@ export default function VideoPlayerModal({
     setCommentInput("");
   };
 
-  // Animated Simulated Offline Download Process
-  const handleDownload = () => {
-    if (isDownloaded) {
-      onToggleDownload(video); // delete it
-      return;
-    }
-
-    setIsDownloading(true);
-    setDownloadProgress(0);
-
-    const interval = setInterval(() => {
-      setDownloadProgress((prev) => {
-        if (prev === null) return 0;
-        if (prev >= 100) {
-          clearInterval(interval);
-          setTimeout(() => {
-            onToggleDownload(video);
-            setIsDownloading(false);
-            setDownloadProgress(null);
-          }, 300);
-          return 100;
-        }
-        return prev + Math.floor(Math.random() * 15) + 10;
-      });
-    }, 250);
-  };
-
   return (
     <motion.div
       id="player-modal-backdrop"
@@ -305,10 +273,11 @@ export default function VideoPlayerModal({
             <div className="relative aspect-video w-full flex-1 max-h-[60vh] lg:max-h-none">
               <iframe
                 id="youtube-player-frame"
-                src={`https://www.youtube.com/embed/${video.id}?autoplay=1&rel=0&enablejsapi=1&origin=${window.location.origin}`}
+                src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=1&rel=0&enablejsapi=1&origin=${window.location.origin || 'https://www.youtube.com'}`}
                 title={video.title}
                 frameBorder="0"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                referrerPolicy="strict-origin-when-cross-origin"
                 allowFullScreen
                 className="w-full h-full object-cover"
               />
@@ -396,50 +365,6 @@ export default function VideoPlayerModal({
                   </button>
                 )}
 
-                <a 
-                  href={`https://ssyoutube.com/watch?v=${video.id}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className={`flex items-center shrink-0 gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    kidsMode 
-                      ? "bg-rose-500 text-white shadow-lg shadow-rose-200" 
-                      : "bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.2)] hover:bg-gray-200"
-                  }`}
-                >
-                  <DownloadCloud className="w-4 h-4" />
-                  <span>Download MP4</span>
-                </a>
-                <button
-                  id="download-video-btn"
-                  onClick={handleDownload}
-                  disabled={isDownloading}
-                  className={`flex items-center gap-2 shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-                    isDownloaded 
-                      ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      : kidsMode
-                        ? "bg-rose-200/50 text-rose-900 hover:bg-rose-200"
-                        : "bg-white/5 text-gray-300 hover:bg-white/10"
-                  }`}
-                >
-                  {isDownloading ? (
-                    <div className="flex items-center gap-2">
-                      <RefreshCw className="w-4 h-4 animate-spin text-rose-400" />
-                      <span>{Math.min(downloadProgress || 0, 100)}% Caching...</span>
-                    </div>
-                  ) : isDownloaded ? (
-                    <>
-                      <Trash2 className="w-4 h-4" />
-                      <span>Remove Offline</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-4 h-4" />
-                      <span>Simulate Offline</span>
-                    </>
-                  )}
-                </button>
-                <button className={`flex shrink-0 items-center justify-center w-8 h-8 rounded-full font-bold text-sm cursor-pointer ${kidsMode ? "bg-rose-200 text-rose-900" : "bg-white/10 text-white"}`}>
-                  0
-                </button>
             </div>
           </div>
 
@@ -456,17 +381,6 @@ export default function VideoPlayerModal({
                 onClick={() => setActiveTab("info")}
                 className={`flex-1 py-3 text-center text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
                   activeTab === "info"
-                    ? kidsMode ? "border-rose-500 text-rose-600" : "border-red-500 text-white bg-white/2"
-                    : "border-transparent text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                About
-              </button>
-              <button
-                id="tab-comments"
-                onClick={() => setActiveTab("comments")}
-                className={`flex-1 py-3 text-center text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
-                  activeTab === "comments"
                     ? kidsMode ? "border-rose-500 text-rose-600" : "border-red-500 text-white bg-white/2"
                     : "border-transparent text-gray-400 hover:text-gray-200"
                 }`}
@@ -736,7 +650,7 @@ export default function VideoPlayerModal({
             </div>
           </div>
         </div>
-              </div>
+        </div>
       </motion.div>
     </motion.div>
   );
