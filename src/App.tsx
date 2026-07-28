@@ -1,3 +1,4 @@
+import GlobalKeyboardManager from "./components/GlobalKeyboardManager";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -63,7 +64,6 @@ import { YouTubeVideo, SyncSession } from "./types";
 import NetworkSpeedIndicator from "./components/NetworkSpeedIndicator";
 import IntroAnimation from "./components/IntroAnimation";
 import SearchBar from "./components/SearchBar";
-import KidsPinPad from "./components/KidsPinPad";
 import VideoGrid from "./components/VideoGrid";
 import VideoPlayerModal from "./components/VideoPlayerModal";
 import SyncHub from "./components/SyncHub";
@@ -190,6 +190,9 @@ import { GoogleLogin, googleLogout } from "@react-oauth/google";
 import { jwtDecode } from "jwt-decode";
 
 import confetti from "canvas-confetti";
+import { auth, db } from "./firebase";
+import { doc, getDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from "firebase/auth";
 
 interface GoogleUser {
   name: string;
@@ -467,9 +470,37 @@ export default function App() {
   const [showKidsPinPrompt, setShowKidsPinPrompt] = useState<
     "setup" | "enter-enable" | "enter-disable" | false
   >(false);
+  const [pinResetTime, setPinResetTime] = useState<number | null>(null);
+  const [resetMessage, setResetMessage] = useState("");
   const [kidsPinInput, setKidsPinInput] = useState("");
   const [kidsPinError, setKidsPinError] = useState("");
 
+
+  useEffect(() => {
+    const checkReset = () => {
+      const resetTimeStr = localStorage.getItem("nexus_kids_pin_reset_time");
+      if (resetTimeStr) {
+        const resetTime = parseInt(resetTimeStr, 10);
+        const now = Date.now();
+        if (now - resetTime >= 5 * 60 * 1000) {
+          localStorage.removeItem("nexus_kids_pin");
+          localStorage.removeItem("nexus_kids_pin_reset_time");
+          setKidsPin(null);
+          setPinResetTime(null);
+          setResetMessage("PIN has been reset successfully.");
+          setTimeout(() => setResetMessage(""), 5000);
+        } else {
+          setPinResetTime(resetTime);
+        }
+      }
+    };
+    checkReset();
+    const interval = setInterval(checkReset, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+  }, []);
   const requestToggleKidsMode = () => {
     if (kidsMode) {
       // Attempting to turn OFF
@@ -944,45 +975,35 @@ export default function App() {
     }
 
     try {
-      const endpoint = isRegistering ? "/api/register" : "/api/login";
-      const body = isRegistering
-        ? { email: authEmail, name: authName, password: authPassword }
-        : { email: authEmail, password: authPassword };
-
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        if (isRegistering) {
-          React.startTransition(() => {
-            setIsRegistering(false);
-            setAuthError("");
-          });
-          alert("Registration successful. Please log in.");
-        } else {
-          localStorage.setItem("nexus_user", JSON.stringify(data.user));
-          React.startTransition(() => {
-            setUser(data.user);
-            setAuthEmail("");
-            setAuthPassword("");
-          });
+      if (isRegistering) {
+        const userCredential = await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+        if (authName) {
+          await updateProfile(userCredential.user, { displayName: authName });
         }
-      } else {
         React.startTransition(() => {
-          if (data.details) {
-            setAuthError(data.details[0].msg);
-          } else {
-            setAuthError(data.error || "Authentication failed");
-          }
+          setIsRegistering(false);
+          setAuthError("");
+        });
+        alert("Registration successful. Please log in.");
+      } else {
+        const userCredential = await signInWithEmailAndPassword(auth, authEmail, authPassword);
+        const userData = {
+          name: userCredential.user.displayName || "User",
+          email: userCredential.user.email,
+          picture: userCredential.user.photoURL || ""
+        };
+        localStorage.setItem("nexus_user", JSON.stringify(userData));
+        React.startTransition(() => {
+          setUser(userData);
+          setAuthEmail("");
+          setAuthPassword("");
+        setTimeout(() => handleBiometricEnrollment(userData), 1000);
         });
       }
-    } catch (err) {
+    } catch (err: any) {
+      console.error(err);
       React.startTransition(() => {
-        setAuthError("Network error. Please try again.");
+        setAuthError(err.message || "Authentication failed");
       });
     } finally {
       React.startTransition(() => {
@@ -991,12 +1012,67 @@ export default function App() {
     }
   };
 
+  const handleBiometricEnrollment = async (userData: any) => {
+    try {
+      if (!window.PublicKeyCredential) return;
+      
+      const wantsToEnroll = window.confirm("Would you like to register a biometric passkey for faster login next time?");
+      if (!wantsToEnroll) return;
+
+      const challenge = new Uint8Array(32);
+      window.crypto.getRandomValues(challenge);
+      
+      const userId = new Uint8Array(16);
+      window.crypto.getRandomValues(userId);
+
+      const cred = (await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: { name: "Nexus App" },
+          user: {
+            id: userId,
+            name: userData.email,
+            displayName: userData.name || "Nexus User",
+          },
+          pubKeyCredParams: [
+            { type: "public-key", alg: -7 },
+            { type: "public-key", alg: -257 },
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required",
+            residentKey: "required",
+            requireResidentKey: true,
+          },
+          timeout: 60000,
+          attestation: "none",
+        },
+      })) as PublicKeyCredential;
+
+      if (cred) {
+        const credIdBase64 = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+        
+        // Save to Firestore
+        await setDoc(doc(db, "passkeys", credIdBase64), {
+          email: userData.email,
+          name: userData.name,
+          picture: userData.picture || ""
+        });
+        
+        setToastMsg("Passkey registered successfully!");
+        setTimeout(() => setToastMsg(""), 3000);
+      }
+    } catch (err) {
+      console.error("Enrollment error:", err);
+      setToastMsg("Failed to register passkey.");
+      setTimeout(() => setToastMsg(""), 3000);
+    }
+  };
+
   const handleBiometricLogin = async () => {
     try {
       if (!window.PublicKeyCredential) {
-        setToastMsg(
-          "Biometric authentication is not supported on this device/browser.",
-        );
+        setToastMsg("Biometric authentication is not supported on this device/browser.");
         setTimeout(() => setToastMsg(""), 3000);
         return;
       }
@@ -1009,70 +1085,27 @@ export default function App() {
       const challenge = new Uint8Array(32);
       window.crypto.getRandomValues(challenge);
 
-      const storedCredId = localStorage.getItem("nexus_biometric_id");
+      const cred = (await navigator.credentials.get({
+        publicKey: {
+          challenge,
+          userVerification: "required",
+        },
+      })) as PublicKeyCredential;
 
-      if (storedCredId) {
-        const credIdUint8 = Uint8Array.from(atob(storedCredId), (c) =>
-          c.charCodeAt(0),
-        );
-
-        await navigator.credentials.get({
-          publicKey: {
-            challenge,
-            allowCredentials: [
-              {
-                id: credIdUint8,
-                type: "public-key",
-              },
-            ],
-            userVerification: "required",
-          },
-        });
-
-        if (savedUser) {
-          localStorage.setItem("nexus_user", JSON.stringify(savedUser));
+      if (cred) {
+        const credIdBase64 = btoa(String.fromCharCode(...new Uint8Array(cred.rawId)));
+        const docRef = doc(db, "passkeys", credIdBase64);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          const userData = docSnap.data();
+          localStorage.setItem("nexus_user", JSON.stringify(userData));
           React.startTransition(() => {
-            setUser(savedUser);
+            setUser(userData as any);
           });
-        }
-      } else {
-        const userId = new Uint8Array(16);
-        window.crypto.getRandomValues(userId);
-
-        const cred = (await navigator.credentials.create({
-          publicKey: {
-            challenge,
-            rp: { name: "Nexus App" },
-            user: {
-              id: userId,
-              name: savedUser ? savedUser.email : "user@nexus",
-              displayName: savedUser ? savedUser.name : "Nexus User",
-            },
-            pubKeyCredParams: [
-              { type: "public-key", alg: -7 },
-              { type: "public-key", alg: -257 },
-            ],
-            authenticatorSelection: {
-              authenticatorAttachment: "platform",
-              userVerification: "required",
-            },
-            timeout: 60000,
-            attestation: "none",
-          },
-        })) as PublicKeyCredential;
-
-        if (cred) {
-          const credIdBase64 = btoa(
-            String.fromCharCode(...new Uint8Array(cred.rawId)),
-          );
-          localStorage.setItem("nexus_biometric_id", credIdBase64);
-
-          if (savedUser) {
-            localStorage.setItem("nexus_user", JSON.stringify(savedUser));
-            React.startTransition(() => {
-              setUser(savedUser);
-            });
-          }
+        } else {
+          setToastMsg("No account found for this passkey.");
+          setTimeout(() => setToastMsg(""), 3000);
         }
       }
     } catch (err: any) {
@@ -1081,7 +1114,7 @@ export default function App() {
         if (err.name === "NotAllowedError") {
           setToastMsg("Biometric authentication was cancelled.");
         } else {
-          setToastMsg("Biometric auth failed. Please use Google Sign In.");
+          setToastMsg("Biometric auth failed.");
         }
       });
       setTimeout(() => React.startTransition(() => setToastMsg("")), 3000);
@@ -1214,7 +1247,8 @@ export default function App() {
           ? "bg-gradient-to-tr from-[#ffeef2] via-[#fff5f7] to-[#eef9ff] text-rose-950"
           : "bg-[#0f0f0f] text-gray-100"
       } ${getFontSizeClass()}`}
-    >
+      >
+      <GlobalKeyboardManager kidsMode={kidsMode} />
       <AnimatePresence>
         {isTransitioningMode && (
           <motion.div
@@ -1997,7 +2031,7 @@ export default function App() {
                               onError={() => {
                                 console.log("Login Failed");
                               }}
-                              useOneTap
+                              
                               use_fedcm_for_prompt={false}
                               theme={kidsMode ? "outline" : "filled_black"}
                               shape="pill"
@@ -2029,7 +2063,7 @@ export default function App() {
                             )}
 
                             {isRegistering && (
-                              <input
+                              <input inputMode="none"
                                 type="text"
                                 placeholder="Full Name"
                                 value={authName}
@@ -2043,7 +2077,7 @@ export default function App() {
                               />
                             )}
 
-                            <input
+                            <input inputMode="none"
                               type="email"
                               placeholder="Email Address"
                               value={authEmail}
@@ -2056,7 +2090,7 @@ export default function App() {
                               required
                             />
 
-                            <input
+                            <input inputMode="none"
                               type="password"
                               placeholder="Password"
                               value={authPassword}
@@ -2070,7 +2104,7 @@ export default function App() {
                             />
 
                             {isRegistering && (
-                              <input
+                              <input inputMode="none"
                                 type="password"
                                 placeholder="Confirm Password"
                                 value={authConfirmPassword}
@@ -2621,15 +2655,16 @@ export default function App() {
                     onClick={() => setShowKidsPinPrompt(false)}
                   />
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                    className="relative z-10 w-full max-w-sm rounded-3xl overflow-hidden p-8 text-center shadow-2xl bg-gray-900 text-white border border-gray-700"
+                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    animate={kidsPinError ? { x: [-10, 10, -10, 10, 0], opacity: 1, scale: 1, y: 0 } : { opacity: 1, scale: 1, y: 0 }}
+                    transition={kidsPinError ? { duration: 0.4 } : { duration: 0.2 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                    className="relative z-10 w-full max-w-sm rounded-[2rem] overflow-hidden p-6 sm:p-8 text-center shadow-2xl bg-[#1a1a1f] text-white border border-gray-700/50"
                   >
-                    <div className="w-16 h-16 mx-auto rounded-full flex items-center justify-center mb-6 shadow-lg bg-rose-500/20 text-rose-500">
-                      <Lock className="w-8 h-8" />
+                    <div className="w-12 h-12 mx-auto rounded-full flex items-center justify-center mb-4 bg-rose-500/10 text-rose-500">
+                      <Lock className="w-6 h-6" />
                     </div>
-                    <h2 className="text-2xl font-bold font-display tracking-tight mb-2">
+                    <h2 className="text-2xl font-bold tracking-tight mb-2">
                       {showKidsPinPrompt === "setup"
                         ? "Set Parental PIN"
                         : "Enter Parental PIN"}
@@ -2637,65 +2672,102 @@ export default function App() {
                     <p className="mb-6 text-gray-400 text-sm">
                       {showKidsPinPrompt === "setup"
                         ? "Create a 4-digit PIN to secure Kids Mode."
-                        : "Enter your 4-digit PIN to proceed."}
+                        : "Enter your 4-digit PIN."}
                     </p>
 
-                    <form
-                      onSubmit={handleKidsPinSubmit}
-                      className="flex flex-col gap-4"
-                    >
-                      <input
-                        type="password"
-                        readOnly
-                        inputMode="none"
-                        maxLength={4}
-                        value={kidsPinInput}
-                        placeholder="••••"
-                        className="w-full bg-black/50 border border-gray-700 rounded-xl px-4 py-3 text-center text-2xl tracking-[1em] text-white focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 transition-all placeholder:tracking-normal placeholder:text-gray-600"
-                      />
-                      {kidsPinError && (
-                        <p className="text-rose-500 text-xs font-bold">
-                          {kidsPinError}
-                        </p>
-                      )}
-                      <div className="flex gap-3 mt-2">
+                    <div className="flex flex-col gap-6 items-center">
+                      {/* Input indicators */}
+                      <div className="flex gap-4">
+                        {[0, 1, 2, 3].map((index) => {
+                          const digit = kidsPinInput[index];
+                          return (
+                            <div 
+                              key={index} 
+                              className={`w-4 h-4 rounded-full transition-all duration-300 ${digit ? 'bg-rose-500 scale-110' : 'bg-gray-700'}`}
+                            />
+                          );
+                        })}
+                      </div>
+
+
+
+                      {showKidsPinPrompt !== "setup" && (
                         <button
                           type="button"
+                          onClick={() => {
+                             const now = Date.now();
+                             localStorage.setItem("nexus_kids_pin_reset_time", now.toString());
+                             setPinResetTime(now);
+                             setResetMessage("Reset link sent to usae4544@gmail.com. PIN will reset in 5 minutes.");
+                          }}
+                          className="text-xs text-rose-400 hover:text-rose-300 font-medium -mt-2 -mb-2"
+                        >
+                          Forgot PIN?
+                        </button>
+                      )}
+                      {resetMessage && (
+                        <p className="text-emerald-400 text-xs font-bold -mt-2 -mb-2 max-w-[240px]">
+                          {resetMessage}
+                        </p>
+                      )}
+                      {pinResetTime && !resetMessage && (
+                        <p className="text-amber-400 text-xs font-bold -mt-2 -mb-2 max-w-[240px]">
+                          PIN will reset in {Math.max(1, Math.ceil((5 * 60 * 1000 - (Date.now() - pinResetTime)) / 60000))} min
+                        </p>
+                      )}
+                      {/* Numeric Keypad */}
+                      <div className="grid grid-cols-3 gap-3 w-full max-w-[240px] mx-auto mt-2">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
+                          <button
+                            key={num}
+                            onClick={() => {
+                              if (kidsPinInput.length < 4) {
+                                const newVal = kidsPinInput + num;
+                                setKidsPinInput(newVal);
+                                if (newVal.length === 4) {
+                                  setTimeout(() => handleKidsPinSubmit({ preventDefault: () => {} } as React.FormEvent), 100);
+                                }
+                              }
+                            }}
+                            className="w-16 h-16 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/20 flex items-center justify-center text-2xl font-bold transition-colors mx-auto"
+                          >
+                            {num}
+                          </button>
+                        ))}
+                        <button
                           onClick={() => {
                             setShowKidsPinPrompt(false);
                             setKidsPinInput("");
                             setKidsPinError("");
                           }}
-                          className="flex-1 py-3 rounded-xl font-bold transition-all text-gray-400 hover:bg-white/5 hover:text-white"
+                          className="w-16 h-16 rounded-full text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 active:bg-rose-500/20 flex items-center justify-center font-bold text-sm transition-colors mx-auto"
                         >
                           Cancel
                         </button>
                         <button
-                          type="submit"
-                          className="flex-1 py-3 rounded-xl font-bold transition-all shadow-lg bg-rose-500 text-white hover:bg-rose-600"
+                          onClick={() => {
+                            if (kidsPinInput.length < 4) {
+                              const newVal = kidsPinInput + "0";
+                              setKidsPinInput(newVal);
+                              if (newVal.length === 4) {
+                                setTimeout(() => handleKidsPinSubmit({ preventDefault: () => {} } as React.FormEvent), 100);
+                              }
+                            }
+                          }}
+                          className="w-16 h-16 rounded-full bg-white/5 hover:bg-white/10 active:bg-white/20 flex items-center justify-center text-2xl font-bold transition-colors mx-auto"
                         >
-                          Confirm
+                          0
+                        </button>
+                        <button
+                          onClick={() => {
+                            setKidsPinInput(kidsPinInput.slice(0, -1));
+                          }}
+                          className="w-16 h-16 rounded-full text-gray-400 hover:text-white hover:bg-white/10 active:bg-white/20 flex items-center justify-center transition-colors mx-auto"
+                        >
+                          <Delete className="w-7 h-7" />
                         </button>
                       </div>
-                    </form>
-                    <KidsPinPad
-                      isOpen={true}
-                      onClose={() => {
-                        setShowKidsPinPrompt(false);
-                        setKidsPinInput("");
-                        setKidsPinError("");
-                      }}
-                      inputValue={kidsPinInput}
-                      onChange={(val) => {
-                         setKidsPinInput(val);
-                         if (val.length === 4) {
-                           // Try submitting automatically when 4 digits are reached
-                           const submitEvent = { preventDefault: () => {} } as React.FormEvent;
-                           // Use a timeout so React updates the state first
-                           setTimeout(() => handleKidsPinSubmit(submitEvent), 50);
-                         }
-                      }}
-                    />
+                    </div>
                   </motion.div>
                 </div>
               )}

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from "react";
 import { Search, Sparkles, X, Clock, AlertTriangle, HelpCircle, Mic, History } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { SearchSuggestionResponse } from "../types";
-import VirtualKeyboard from "./VirtualKeyboard";
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
@@ -20,7 +19,6 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
   const [history, setHistory] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [voiceError, setVoiceError] = useState("");
-  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleVoiceSearch = () => {
@@ -161,7 +159,6 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
     addToHistory(inputValue);
     onSearch(inputValue);
     setIsOpen(false);
-    setIsKeyboardOpen(false);
   };
 
   const selectSuggestion = (val: string) => {
@@ -169,7 +166,6 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
     addToHistory(val);
     onSearch(val);
     setIsOpen(false);
-    setIsKeyboardOpen(false);
   };
 
   const handleClear = () => {
@@ -229,7 +225,6 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
                 id="search-input"
                 type="text"
                 inputMode="none" // Prevent native keyboard
-                readOnly // Adding readOnly is a more robust way to prevent native keyboard on mobile
                 value={inputValue}
                 onChange={(e) => {
                   setInputValue(e.target.value);
@@ -237,19 +232,16 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
                 }}
                 onFocus={() => {
                   setIsOpen(true);
-                  setIsKeyboardOpen(true);
                   if (onFocusChange) onFocusChange(true);
                 }}
                 onBlur={() => {
                   if (onFocusChange) onFocusChange(false);
-                  // Note: The virtual keyboard component is expected to close itself or handle external clicks.
-                  // Removing blur-based closure of the keyboard directly since clicking the virtual keyboard might blur the input.
                 }}
                 placeholder={
                   kidsMode ? "Search fun cartoons! 🦕" : "Search"
                 }
-                className={`w-full min-w-0 py-2 sm:py-3 pl-4 sm:pl-2 pr-12 sm:pr-14 text-sm sm:text-lg bg-transparent outline-none border-none font-sans placeholder-gray-500 tracking-wide ${
-                  kidsMode ? "text-rose-900 font-medium" : "text-white"
+                className={`w-full max-w-full box-border min-w-0 py-4 sm:py-5 pl-4 pr-12 sm:pr-14 text-base sm:text-lg font-bold bg-transparent outline-none border-none placeholder-gray-500 tracking-wide ${
+                  kidsMode ? "text-rose-950" : "text-white"
                 }`}
               />
 
@@ -362,18 +354,6 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
           <Mic className="w-5 h-5" />
         </button>
       </div>
-
-      <VirtualKeyboard
-        isOpen={isKeyboardOpen}
-        onClose={() => {
-          setIsKeyboardOpen(false);
-          setIsOpen(false);
-        }}
-        inputValue={inputValue}
-        onChange={setInputValue}
-        onSubmit={() => handleSubmit()}
-        kidsMode={kidsMode}
-      />
     </div>
   );
 }

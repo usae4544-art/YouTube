@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from "react";
 import { Plus, X, Image as ImageIcon, Video, Send, MessageCircle, AlertCircle, Loader2 } from "lucide-react";
 import { GoogleUser } from "../types";
 import { motion, AnimatePresence } from "motion/react";
-import VirtualKeyboard from "./VirtualKeyboard";
 
 interface Reply {
   id: string;
@@ -51,8 +50,6 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
   const replyFileInputRef = useRef<HTMLInputElement>(null);
   
   // Custom Keyboard State
-  const [isKeyboardOpen, setIsKeyboardOpen] = useState(false);
-  const [activeInput, setActiveInput] = useState<'new' | 'reply' | null>(null);
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
   const [replyUploadProgress, setReplyUploadProgress] = useState(0);
 
@@ -252,11 +249,9 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       onFocus={() => {
-                        setActiveInput('new');
-                        setIsKeyboardOpen(true);
                       }}
                       inputMode="none"
-                      readOnly
+                      
                       placeholder="Describe the bug or issue you are experiencing..."
                       className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-sm text-white resize-none h-24 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-text"
                       required
@@ -281,7 +276,7 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
 
                     <div className="flex items-center justify-between w-full mt-2 pt-3 border-t border-white/5">
                       <div className="flex-1 flex justify-start">
-                        <input 
+                        <input inputMode="none" 
                           type="file" 
                           accept="image/*,video/*" 
                           ref={fileInputRef}
@@ -447,11 +442,9 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
                                 value={replyDescription}
                                 onChange={(e) => setReplyDescription(e.target.value)}
                                 onFocus={() => {
-                                  setActiveInput('reply');
-                                  setIsKeyboardOpen(true);
                                 }}
                                 inputMode="none"
-                                readOnly
+                                
                                 placeholder="Write a reply or provide a solution..."
                                 className="w-full bg-black/40 border border-white/10 rounded p-2 text-sm text-white resize-none h-16 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-text"
                               />
@@ -475,7 +468,7 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
 
                               <div className="flex items-center justify-between mt-2">
                                 <div className="flex items-center gap-2">
-                                  <input 
+                                  <input inputMode="none" 
                                     type="file" 
                                     accept="image/*,video/*" 
                                     ref={replyFileInputRef}
@@ -528,25 +521,6 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
                 )}
               </div>
       
-      <VirtualKeyboard
-        isOpen={isKeyboardOpen}
-        onClose={() => {
-          setIsKeyboardOpen(false);
-          setActiveInput(null);
-        }}
-        inputValue={activeInput === 'new' ? description : activeInput === 'reply' ? replyDescription : ''}
-        onChange={(val) => {
-          if (activeInput === 'new') {
-            setDescription(val);
-          } else if (activeInput === 'reply') {
-            setReplyDescription(val);
-          }
-        }}
-        onSubmit={() => {
-          setIsKeyboardOpen(false);
-          setActiveInput(null);
-        }}
-      />
     </div>
   );
 }

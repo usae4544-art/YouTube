@@ -213,10 +213,11 @@ export default function VideoPlayerModal({
     >
       <motion.div
         id="player-modal-content"
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.8 }}
-        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        initial={{ opacity: 0, y: 120, scale: 0.9, rotateX: 20, filter: "blur(15px)" }}
+        animate={{ opacity: 1, y: 0, scale: 1, rotateX: 0, filter: "blur(0px)" }}
+        exit={{ opacity: 0, y: 120, scale: 0.9, rotateX: -20, filter: "blur(15px)" }}
+        transition={{ type: "spring", damping: 30, stiffness: 250, mass: 0.8 }}
+        style={{ transformPerspective: 1500, transformOrigin: "bottom center" }}
         className={`w-full overflow-hidden shadow-2xl border transition-all duration-500 pointer-events-auto ${
           isAudioMode
             ? `h-[72px] rounded-2xl flex flex-row items-center p-3 gap-3 ${kidsMode ? "bg-rose-100 border-rose-300" : "bg-black/95 border-white/10"}`

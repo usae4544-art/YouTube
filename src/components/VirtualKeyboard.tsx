@@ -6,7 +6,7 @@ interface VirtualKeyboardProps {
   isOpen: boolean;
   onClose: () => void;
   inputValue: string;
-  onChange: (val: string) => void;
+  onKeyPress: (key: string) => void;
   onSubmit: () => void;
   kidsMode?: boolean;
 }
@@ -25,7 +25,7 @@ export default function VirtualKeyboard({
   isOpen,
   onClose,
   inputValue,
-  onChange,
+  onKeyPress,
   onSubmit,
   kidsMode = false
 }: VirtualKeyboardProps) {
@@ -38,6 +38,44 @@ export default function VirtualKeyboard({
   const [soundStyle, setSoundStyle] = useState('Mechanical'); // Mechanical, Soft Click, Pop, Silent
   const [hapticEnabled, setHapticEnabled] = useState(true);
   const [wallpaper, setWallpaper] = useState('dark-glass'); // dark-glass, carbon, midnight
+
+  const [clipboardText, setClipboardText] = useState("");
+
+  useEffect(() => {
+    const readClipboard = async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text) {
+             setClipboardText(text);
+          }
+        }
+      } catch (err) {
+        // console.warn("Clipboard read not permitted");
+      }
+    };
+    if (isOpen) {
+      readClipboard();
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+     const handleCopy = () => {
+        setTimeout(async () => {
+           try {
+             if (navigator.clipboard && navigator.clipboard.readText) {
+                const text = await navigator.clipboard.readText();
+                if (text) setClipboardText(text);
+             } else {
+                const selection = window.getSelection();
+                if (selection) setClipboardText(selection.toString());
+             }
+           } catch (e) {}
+        }, 100);
+     };
+     document.addEventListener('copy', handleCopy);
+     return () => document.removeEventListener('copy', handleCopy);
+  }, []);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
 
@@ -108,12 +146,12 @@ export default function VirtualKeyboard({
 
   const lastKeyTimeRef = useRef(0);
 
-  const handleKeyClick = (key: string, e: React.MouseEvent | React.TouchEvent) => {
-    if ('preventDefault' in e) e.preventDefault(); // Prevent focus loss from input
+  const handleKeyClick = (key: string, e: React.PointerEvent<HTMLButtonElement>) => {
+    if ('preventDefault' in e) e.preventDefault();
     e.stopPropagation();
-    
+
     const now = Date.now();
-    if (now - lastKeyTimeRef.current < 150) return;
+    if (now - lastKeyTimeRef.current < 50) return;
     lastKeyTimeRef.current = now;
 
     playClickSound();
@@ -121,21 +159,17 @@ export default function VirtualKeyboard({
 
     if (key === '{shift}') {
       setIsShift(!isShift);
-    } else if (key === '{backspace}') {
-      onChange(inputValue.slice(0, -1));
-    } else if (key === '{space}') {
-      onChange(inputValue + ' ');
     } else if (key === '{symbols}') {
-      // Toggle symbols layout (mocked for now)
-    } else if (key === '{emoji}' || key === '{globe}' || key === '{comma_mic}') {
-      if (key === '{comma_mic}') onChange(inputValue + ',');
+      // Toggle symbols
     } else if (key === '{search}') {
       onSubmit();
       onClose();
+    } else if (key === '{comma_mic}') {
+      onKeyPress(',');
     } else {
-      const char = isShift ? key.toUpperCase() : key;
-      onChange(inputValue + char);
-      if (isShift) setIsShift(false); // auto unshift
+      const char = isShift && key.length === 1 ? key.toUpperCase() : key;
+      onKeyPress(char);
+      if (isShift && key.length === 1) setIsShift(false);
     }
   };
 
@@ -171,6 +205,51 @@ export default function VirtualKeyboard({
           className={containerClass}
           style={{ touchAction: 'none' }}
         >
+
+          {/* Clipboard Preview / Paste Bar */}
+          <AnimatePresence>
+            {clipboardText && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="w-full flex items-center bg-[#1a1a1a] border-b border-white/5"
+              >
+                <div 
+                  className="flex-1 px-4 py-2 text-sm text-gray-300 truncate cursor-pointer hover:bg-white/5 transition-colors"
+                  onPointerDown={(e) => {
+                    if ('preventDefault' in e) e.preventDefault();
+                    e.stopPropagation();
+                    playClickSound();
+                    triggerHaptic();
+                    onKeyPress(clipboardText);
+                    setClipboardText("");
+                  }}
+                >
+                  <span className="text-gray-500 mr-2 text-xs font-bold uppercase tracking-widest">Paste</span>
+                  {clipboardText}
+                </div>
+                <button 
+                   onPointerDown={(e) => {
+                      if ('preventDefault' in e) e.preventDefault();
+                      e.stopPropagation();
+                      setClipboardText("");
+                   }}
+                   className="p-3 text-gray-500 hover:text-white"
+                >
+                   <X className="w-4 h-4" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {/* Input Display Area */}
+          <div className={`w-full backdrop-blur-md border-b px-4 sm:px-6 py-4 sm:py-5 flex items-center shadow-inner min-h-[64px] ${kidsMode ? 'bg-white/50 border-rose-200' : 'bg-black/40 border-white/5'}`}>
+             <div className={`flex-1 text-xl sm:text-2xl font-bold tracking-wide truncate overflow-hidden whitespace-nowrap ${kidsMode ? 'text-rose-950' : 'text-white'}`}>
+                {inputValue || <span className={kidsMode ? "text-rose-400 font-normal" : "text-gray-500 font-normal"}>Search...</span>}
+             </div>
+             <div className={`w-1 h-6 sm:h-7 animate-pulse ml-1 rounded-full ${kidsMode ? 'bg-rose-500' : 'bg-blue-500'}`}></div>
+          </div>
+
           {/* Settings Toolbar */}
           <div className="flex justify-between items-center px-4 py-1.5 border-b border-white/5 bg-black/20 backdrop-blur-md">
             <div className="flex gap-4 items-center">
@@ -192,8 +271,8 @@ export default function VirtualKeyboard({
                     {topRow.map(key => (
                         <button
                             key={key.char}
-                            onMouseDown={(e) => handleKeyClick(key.char, e)}
-                            onTouchStart={(e) => handleKeyClick(key.char, e as any)}
+                            onPointerDown={(e) => handleKeyClick(key.char, e)}
+                            
                             className={`relative flex items-center justify-center rounded-[10px] font-medium text-lg sm:text-2xl transition-all select-none active:scale-95 ${keyStyleClass}`}
                             style={{ height: '3.4rem', minWidth: '2rem', flex: 1 }}
                         >
@@ -208,8 +287,8 @@ export default function VirtualKeyboard({
                   {midRow.map(char => (
                     <button 
                       key={char} 
-                      onMouseDown={(e) => handleKeyClick(char, e)} 
-                      onTouchStart={(e) => handleKeyClick(char, e as any)} 
+                      onPointerDown={(e) => handleKeyClick(char, e)} 
+                       
                       className={`flex items-center justify-center rounded-[10px] font-medium text-lg sm:text-2xl transition-all select-none active:scale-95 ${keyStyleClass}`} 
                       style={{ height: '3.4rem', minWidth: '2rem', flex: 1 }}
                     >
@@ -239,8 +318,8 @@ export default function VirtualKeyboard({
                     return (
                       <button 
                         key={char} 
-                        onMouseDown={(e) => handleKeyClick(char, e)} 
-                        onTouchStart={(e) => handleKeyClick(char, e as any)} 
+                        onPointerDown={(e) => handleKeyClick(char, e)} 
+                         
                         className={`flex items-center justify-center rounded-[10px] font-medium text-lg sm:text-2xl transition-all select-none active:scale-95 ${extraClass}`} 
                         style={{ height: '3.4rem', minWidth: '2rem', flex }}
                       >
@@ -281,8 +360,8 @@ export default function VirtualKeyboard({
                     return (
                       <button 
                         key={char} 
-                        onMouseDown={(e) => handleKeyClick(char, e)} 
-                        onTouchStart={(e) => handleKeyClick(char, e as any)} 
+                        onPointerDown={(e) => handleKeyClick(char, e)} 
+                         
                         className={`flex items-center justify-center rounded-[10px] font-medium text-lg sm:text-2xl transition-all select-none active:scale-95 ${extraClass}`} 
                         style={{ height: '3.4rem', minWidth: '2.5rem', flex }}
                       >
