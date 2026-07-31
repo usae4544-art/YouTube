@@ -1,228 +1,335 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
 import { motion, AnimatePresence } from "motion/react";
-import { Play, Sparkles, Volume2, VolumeX } from "lucide-react";
+import { Camera, Sparkles, LogIn } from "lucide-react";
 
 interface IntroAnimationProps {
   onComplete: () => void;
 }
 
 export default function IntroAnimation({ onComplete }: IntroAnimationProps) {
-  const [isPlayingSound, setIsPlayingSound] = useState(false);
-  const [step, setStep] = useState(0);
+  const mountRef = useRef<HTMLDivElement>(null);
+  const [isFadingOut, setIsFadingOut] = useState(false);
+  const [inputText, setInputText] = useState("");
+  const updateParticlesRef = useRef<(text: string) => void>();
 
-  // Auto-advance animation steps
-  useEffect(() => {
-    // Attempt to play sound automatically
-    playCinematicSound();
-
-    // Step 0: Initial splash glow
-    const t0 = setTimeout(() => setStep(1), 800);
-
-    // Step 1: Text resolve & logo pulse
-    const t1 = setTimeout(() => setStep(2), 2400);
-    // Step 2: Scale out and finish
-    const t2 = setTimeout(() => {
+  const handleGetStarted = () => {
+    setIsFadingOut(true);
+    setTimeout(() => {
       onComplete();
-    }, 4000);
+    }, 800);
+  };
 
-    return () => {
-      clearTimeout(t0);
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [onComplete]);
-
-  // Synthesis of an elegant cinematic "whoosh" sound using the browser's Web Audio API
-  function playCinematicSound() {
-    try {
-      let ctx: AudioContext;
-      if (window.AudioContext) {
-        ctx = new AudioContext();
-      } else if ((window as any).webkitAudioContext) {
-        const WebkitAudioContext = (window as any).webkitAudioContext;
-        ctx = new WebkitAudioContext();
-      } else {
-        return;
-      }
-      
-      // Low rumble synth
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-      const filter = ctx.createBiquadFilter();
-
-      osc1.type = "sine";
-      osc2.type = "sawtooth";
-      
-      osc1.frequency.setValueAtTime(45, ctx.currentTime);
-      osc1.frequency.exponentialRampToValueAtTime(120, ctx.currentTime + 2.5);
-      
-      osc2.frequency.setValueAtTime(50, ctx.currentTime);
-      osc2.frequency.exponentialRampToValueAtTime(90, ctx.currentTime + 2.5);
-
-      filter.type = "lowpass";
-      filter.frequency.setValueAtTime(150, ctx.currentTime);
-      filter.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 1.8);
-
-      gainNode.gain.setValueAtTime(0.01, ctx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(0.35, ctx.currentTime + 0.6);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 3.0);
-
-      osc1.connect(filter);
-      osc2.connect(filter);
-      filter.connect(gainNode);
-      gainNode.connect(ctx.destination);
-
-      osc1.start();
-      osc2.start();
-      
-      osc1.stop(ctx.currentTime + 3.2);
-      osc2.stop(ctx.currentTime + 3.2);
-
-      // Play a high chime sparkle sound right as the text resolves
-      setTimeout(() => {
-        const oscChime = ctx.createOscillator();
-        const chimeGain = ctx.createGain();
-        oscChime.type = "sine";
-        oscChime.frequency.setValueAtTime(880, ctx.currentTime);
-        oscChime.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.4);
-
-        chimeGain.gain.setValueAtTime(0.12, ctx.currentTime);
-        chimeGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.2);
-
-        oscChime.connect(chimeGain);
-        chimeGain.connect(ctx.destination);
-        oscChime.start();
-        oscChime.stop(ctx.currentTime + 1.2);
-      }, 1000);
-
-      setIsPlayingSound(true);
-    } catch (e) {
-      console.warn("Audio Context blocked or not supported on this device.", e);
+  const handleCreate = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (updateParticlesRef.current) {
+      updateParticlesRef.current(inputText);
     }
   };
 
+  useEffect(() => {
+    if (!mountRef.current) return;
+
+    let renderer: THREE.WebGLRenderer;
+    let particles: THREE.Points;
+    let geometry: THREE.BufferGeometry;
+    let material: THREE.ShaderMaterial;
+    let animationFrameId: number;
+
+    try {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(75, w / h, 0.1, 1000);
+      camera.position.z = 120;
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+      renderer.setSize(w, h);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
+      mountRef.current.appendChild(renderer.domElement);
+
+      const particleCount = 15000;
+      
+      geometry = new THREE.BufferGeometry();
+      const positions = new Float32Array(particleCount * 3);
+      const targetPositions = new Float32Array(particleCount * 3);
+      const colors = new Float32Array(particleCount * 3);
+      
+      const color1 = new THREE.Color(0xd946ef); // Fuchsia
+      const color2 = new THREE.Color(0x06b6d4); // Cyan
+      const color3 = new THREE.Color(0x8b5cf6); // Violet
+      
+      for (let i = 0; i < particleCount; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        const r = 35 + Math.random() * 1.5;
+        
+        const px = r * Math.sin(phi) * Math.cos(theta);
+        const py = r * Math.sin(phi) * Math.sin(theta);
+        const pz = r * Math.cos(phi);
+        
+        positions[i*3] = px;
+        positions[i*3+1] = py;
+        positions[i*3+2] = pz;
+        
+        targetPositions[i*3] = px;
+        targetPositions[i*3+1] = py;
+        targetPositions[i*3+2] = pz;
+        
+        const rand = Math.random();
+        let mixedColor = color1.clone();
+        if (rand > 0.66) {
+           mixedColor.lerp(color2, (rand - 0.66) * 3);
+        } else if (rand > 0.33) {
+           mixedColor = color2.clone().lerp(color3, (rand - 0.33) * 3);
+        } else {
+           mixedColor = color3.clone().lerp(color1, rand * 3);
+        }
+        
+        mixedColor.multiplyScalar(1.3);
+
+        colors[i*3] = mixedColor.r;
+        colors[i*3+1] = mixedColor.g;
+        colors[i*3+2] = mixedColor.b;
+      }
+      
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      geometry.setAttribute('targetPos', new THREE.BufferAttribute(targetPositions, 3));
+      
+      material = new THREE.ShaderMaterial({
+        uniforms: {
+          time: { value: 0 },
+          morphAmount: { value: 0 },
+        },
+        vertexShader: `
+          uniform float time;
+          uniform float morphAmount;
+          attribute vec3 targetPos;
+          attribute vec3 color;
+          varying vec3 vColor;
+          
+          void main() {
+            vColor = color;
+            vec3 p = mix(position, targetPos, morphAmount);
+            p.x += sin(time * 3.0 + p.y * 0.1) * 0.3;
+            p.y += cos(time * 3.0 + p.x * 0.1) * 0.3;
+            vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
+            
+            gl_PointSize = (180.0 / -mvPosition.z) * (1.0 + morphAmount * 0.3);
+            gl_Position = projectionMatrix * mvPosition;
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vColor;
+          void main() {
+            float r = distance(gl_PointCoord, vec2(0.5));
+            if (r > 0.5) discard;
+            
+            float alpha = smoothstep(0.5, 0.0, r);
+            float core = smoothstep(0.2, 0.0, r) * 0.8; 
+            
+            vec3 finalColor = vColor + vec3(core);
+            gl_FragColor = vec4(finalColor, min(alpha * 1.5, 1.0));
+          }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      
+      particles = new THREE.Points(geometry, material);
+      scene.add(particles);
+      
+      let currentMorphAmount = 0;
+      let isTextMode = false;
+
+      updateParticlesRef.current = (text: string) => {
+        isTextMode = !!text;
+        
+        const posAttr = geometry.attributes.position as THREE.BufferAttribute;
+        const targetAttr = geometry.attributes.targetPos as THREE.BufferAttribute;
+        
+        for(let i = 0; i < particleCount; i++) {
+           posAttr.array[i*3] = THREE.MathUtils.lerp(posAttr.array[i*3], targetAttr.array[i*3], currentMorphAmount);
+           posAttr.array[i*3+1] = THREE.MathUtils.lerp(posAttr.array[i*3+1], targetAttr.array[i*3+1], currentMorphAmount);
+           posAttr.array[i*3+2] = THREE.MathUtils.lerp(posAttr.array[i*3+2], targetAttr.array[i*3+2], currentMorphAmount);
+        }
+        posAttr.needsUpdate = true;
+        
+        if (!text) {
+          for(let i = 0; i < particleCount; i++) {
+             const theta = Math.random() * Math.PI * 2;
+             const phi = Math.acos((Math.random() * 2) - 1);
+             const r = 35 + Math.random() * 1.5;
+             targetAttr.array[i*3] = r * Math.sin(phi) * Math.cos(theta);
+             targetAttr.array[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+             targetAttr.array[i*3+2] = r * Math.cos(phi);
+          }
+        } else {
+          const canvas2d = document.createElement('canvas');
+          canvas2d.width = 1200;
+          canvas2d.height = 300;
+          const ctx = canvas2d.getContext('2d', { willReadFrequently: true });
+          if (ctx) {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas2d.width, canvas2d.height);
+            ctx.font = '900 140px sans-serif'; 
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(text, canvas2d.width / 2, canvas2d.height / 2);
+            
+            try {
+              const imgData = ctx.getImageData(0, 0, canvas2d.width, canvas2d.height);
+              const pixels = imgData.data;
+              const textPos = [];
+              
+              for (let y = 0; y < canvas2d.height; y += 3) {
+                for (let x = 0; x < canvas2d.width; x += 3) {
+                  const index = (y * canvas2d.width + x) * 4;
+                  if (pixels[index] > 128) {
+                    const px = (x - canvas2d.width / 2) * 0.22;
+                    const py = -(y - canvas2d.height / 2) * 0.22;
+                    const pz = (Math.random() - 0.5) * 3;
+                    textPos.push({x: px, y: py, z: pz});
+                  }
+                }
+              }
+              
+              textPos.sort(() => Math.random() - 0.5);
+
+              for(let i = 0; i < particleCount; i++) {
+                 if (i < textPos.length) {
+                    targetAttr.array[i*3] = textPos[i].x;
+                    targetAttr.array[i*3+1] = textPos[i].y;
+                    targetAttr.array[i*3+2] = textPos[i].z;
+                 } else {
+                    targetAttr.array[i*3] = (Math.random() - 0.5) * 80;
+                    targetAttr.array[i*3+1] = (Math.random() - 0.5) * 80;
+                    targetAttr.array[i*3+2] = (Math.random() - 0.5) * 50 - 150;
+                 }
+              }
+            } catch (e) {
+              console.warn(e);
+            }
+          }
+        }
+        targetAttr.needsUpdate = true;
+        currentMorphAmount = 0;
+      };
+
+      const clock = new THREE.Clock();
+      
+      setTimeout(() => {
+        if (updateParticlesRef.current && !isFadingOut) {
+          updateParticlesRef.current("shivansh");
+        }
+      }, 1500);
+
+      const animate = () => {
+        animationFrameId = requestAnimationFrame(animate);
+        const elapsedTime = clock.getElapsedTime();
+        
+        material.uniforms.time.value = elapsedTime;
+        
+        currentMorphAmount += (1 - currentMorphAmount) * 0.05;
+        material.uniforms.morphAmount.value = currentMorphAmount;
+        
+        if (isTextMode) {
+          particles.rotation.y = THREE.MathUtils.lerp(particles.rotation.y, 0, 0.08);
+          particles.rotation.x = THREE.MathUtils.lerp(particles.rotation.x, 0, 0.08);
+        } else {
+          particles.rotation.y += 0.005;
+          particles.rotation.x += 0.002;
+        }
+        
+        renderer.render(scene, camera);
+      };
+      
+      animate();
+      
+      const handleResize = () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      };
+      
+      window.addEventListener('resize', handleResize);
+      
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        cancelAnimationFrame(animationFrameId);
+        if (mountRef.current && renderer && mountRef.current.contains(renderer.domElement)) {
+          mountRef.current.removeChild(renderer.domElement);
+        }
+        if (renderer) renderer.dispose();
+        if (geometry) geometry.dispose();
+        if (material) material.dispose();
+      };
+    } catch (err) {
+      console.warn("THREE JS Intro Animation failed:", err);
+      return () => {};
+    }
+  }, [isFadingOut]);
+
   return (
     <motion.div
-      id="intro-container"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#050508] overflow-hidden"
+      className="fixed inset-0 z-[100] bg-[#050508] overflow-hidden flex flex-col items-center justify-between"
       initial={{ opacity: 1 }}
-      exit={{ opacity: 0, scale: 1.08 }}
-      transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+      animate={{ opacity: isFadingOut ? 0 : 1 }}
+      transition={{ duration: 0.8 }}
     >
-      {/* Background radial spotlights */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[30%] left-[10%] w-[80%] h-[70%] rounded-full bg-red-600/10 blur-[130px] animate-glow-mesh-1" />
-        <div className="absolute -bottom-[30%] right-[10%] w-[80%] h-[70%] rounded-full bg-violet-600/10 blur-[130px] animate-glow-mesh-2" />
+      {/* 3D Canvas Container */}
+      <div ref={mountRef} className="absolute inset-0 z-0 pointer-events-none" />
+
+      {/* Top Instagram Badge */}
+      <div className="relative z-10 pt-10">
+        <a 
+          href="https://www.instagram.com/shivansh10120?igsh=Ymt6MWF3Y3J0Mm1x"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 backdrop-blur-md border border-white/10 shadow-xl transition-all duration-300 hover:scale-105 hover:bg-white/10 active:scale-95 cursor-pointer"
+        >
+          <Camera className="w-4 h-4 text-pink-500" />
+          <span className="text-white font-medium text-sm tracking-wide">📸 shivansh</span>
+        </a>
       </div>
 
-      <div className="relative flex flex-col items-center max-w-md px-6 text-center z-10">
-        {/* Floating audio indicator */}
-        <button
-          id="audio-prompt-btn"
-          onClick={playCinematicSound}
-          disabled={isPlayingSound}
-          className={`absolute -top-16 flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-500 hover:scale-105 cursor-pointer ${
-            isPlayingSound
-              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20 cursor-default"
-              : "bg-white/5 text-white/60 border-white/10 hover:text-white"
-          }`}
-        >
-          {isPlayingSound ? (
-            <>
-              <Volume2 className="w-3.5 h-3.5 animate-pulse" />
-              <span>Cinematic Sound On</span>
-            </>
-          ) : (
-            <>
-              <VolumeX className="w-3.5 h-3.5" />
-              <span>Tap for Sonic Experience</span>
-            </>
-          )}
-        </button>
-
-        {/* Cinematic Logo Node */}
-        <div className="relative mb-8">
-          {/* Pulsing ring */}
-          <motion.div
-            className="absolute -inset-4 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-500 opacity-20 blur-md pointer-events-none"
-            animate={{
-              scale: [1, 1.25, 1],
-              opacity: [0.2, 0.4, 0.2],
-            }}
-            transition={{
-              duration: 2.5,
-              repeat: Infinity,
-              ease: "easeInOut",
+      {/* Bottom Animation UI & Continue Button */}
+      <div className="relative z-10 w-full max-w-lg px-4 pb-8 space-y-4">
+        
+        {/* Dynamic Text Morph Input (Video reference) */}
+        <div className="bg-[#1a1a24]/80 backdrop-blur-xl border border-white/10 p-2 rounded-2xl flex items-center gap-2 shadow-2xl">
+          <input 
+            type="text" 
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            placeholder="shivansh"
+            className="flex-1 bg-transparent text-white px-4 py-3 outline-none placeholder:text-white/30 text-lg font-medium"
+            onKeyDown={(e) => {
+               if (e.key === 'Enter') handleCreate();
             }}
           />
-
-          {/* Core play container */}
-          <motion.div
-            id="intro-logo-box"
-            className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-red-600 to-rose-500 flex items-center justify-center shadow-[0_0_50px_rgba(239,68,68,0.3)] border border-red-400/30 relative overflow-hidden"
-            initial={{ scale: 0.3, rotate: -45, opacity: 0 }}
-            animate={{ scale: 1, rotate: 0, opacity: 1 }}
-            transition={{ type: "spring", damping: 12, stiffness: 80, delay: 0.2 }}
+          <button 
+            onClick={handleCreate}
+            className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors"
           >
-            {/* Play symbol */}
-            <Play className="w-9 h-9 text-white fill-white translate-x-0.5" />
-
-            {/* Sweep light reflection */}
-            <motion.div
-              className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full"
-              animate={{
-                translateX: ["100%", "-100%"],
-              }}
-              transition={{
-                duration: 2,
-                repeat: Infinity,
-                repeatDelay: 1,
-                ease: "easeInOut",
-              }}
-            />
-          </motion.div>
+            <Sparkles className="w-4 h-4" />
+            Create
+          </button>
         </div>
 
-        {/* Text Revelations */}
-        <div className="space-y-3">
-          <motion.h1
-            id="intro-title"
-            className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl"
-            initial={{ opacity: 0, y: 15 }}
-            animate={step >= 1 ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-          >
-            NEXUS <span className="text-red-500 glow-red">VIDEO</span>
-          </motion.h1>
+        {/* Enter App Action */}
+        <button 
+          onClick={handleGetStarted}
+          className="w-full bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 text-white py-4 rounded-2xl font-bold text-lg flex justify-center items-center gap-2 transition-all active:scale-95 shadow-[0_0_20px_rgba(255,255,255,0.05)]"
+        >
+          <LogIn className="w-5 h-5" />
+          Continue to App
+        </button>
 
-          <motion.p
-            id="intro-subtitle"
-            className="text-sm text-gray-400 font-sans tracking-wide leading-relaxed"
-            initial={{ opacity: 0 }}
-            animate={step >= 1 ? { opacity: 1 } : {}}
-            transition={{ duration: 1, delay: 0.4 }}
-          >
-            A premium immersive portal with smart search, cross-device sync & Kids Mode.
-          </motion.p>
-        </div>
-
-        {/* Sparkling Loading particles */}
-        <div className="mt-8 flex justify-center gap-1.5 h-6">
-          <AnimatePresence>
-            {step < 2 && (
-              <motion.div
-                className="flex items-center gap-1 text-red-500/80 text-xs tracking-widest font-mono"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-              >
-                <Sparkles className="w-3.5 h-3.5 animate-spin text-red-400" />
-                <span>INITIALIZING NEXUS</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
       </div>
     </motion.div>
   );

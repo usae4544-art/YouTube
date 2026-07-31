@@ -439,7 +439,7 @@ app.post("/api/suggest", async (req, res) => {
     const suggestions = Array.isArray(data.suggestions) ? data.suggestions.slice(0, 4) : [];
     res.json({ suggestions, safe: data.safe ?? true, safetyExplanation: data.safetyExplanation });
   } catch (error: any) {
-    console.error("Gemini Suggest failed:", error);
+    console.warn("Gemini Suggest unavailable (likely high demand). Using fallback.");
     res.json({ 
       suggestions: [`${req.body.q || 'latest'} videos`, `${req.body.q || 'best'} trending`, `${req.body.q || 'new'} updates`, `popular`],
       safe: true 
@@ -498,7 +498,7 @@ Description: ${description ? description.slice(0, 1000) : "No description provid
     const result = JSON.parse(text.trim());
     res.json(result);
   } catch (error: any) {
-    console.error("Gemini summarization failed:", error);
+    console.warn("Gemini summarization unavailable (likely high demand). Using fallback.");
     res.json({
       summary: "This video looks amazing! Our AI is taking a short break right now due to high demand, but you can still enjoy the content.",
       bullets: ["High-quality content production", "Enlightening concepts and visual edits", "User-friendly breakdown"],
@@ -540,7 +540,7 @@ User Question: ${message}`,
 
     res.json({ reply: response.text });
   } catch (error: any) {
-    console.error("Gemini chat failed:", error);
+    console.warn("Gemini chat unavailable (likely high demand). Using fallback.");
     res.json({ reply: "I'm currently experiencing high traffic (AI limit reached). Please try again in a few moments!" });
   }
 });

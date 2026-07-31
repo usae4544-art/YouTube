@@ -593,6 +593,8 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState("");
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [issueNote, setIssueNote] = useState("");
+  const [issueType, setIssueType] = useState<"password_reset" | "transfer_code">("password_reset");
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authName, setAuthName] = useState("");
   const [authError, setAuthError] = useState("");
@@ -972,11 +974,15 @@ export default function App() {
       await setDoc(doc(db, "password_reset_requests", forgotPasswordEmail + "_" + Date.now()), {
         email: forgotPasswordEmail,
         timestamp: Date.now(),
-        status: "PENDING_ISSUE_MODE"
+        status: "PENDING_ISSUE_MODE",
+        issueType: issueType,
+        note: issueNote
       });
-      alert("Password reset request submitted. An admin will review it shortly in Issue Mode.");
+      alert(`Request submitted successfully. An admin will review it shortly in Issue Mode.`);
       setIsForgotPassword(false);
       setForgotPasswordEmail("");
+      setIssueNote("");
+      setIssueType("password_reset");
     } catch (e: any) {
       setAuthError(e.message || "Failed to submit request.");
     } finally {
@@ -1370,7 +1376,7 @@ export default function App() {
                   </h1>
                 </div>
 
-                <div className="flex-1 min-w-[150px] max-w-5xl xl:max-w-6xl mx-auto px-1 sm:px-4 lg:px-12 w-full order-3 sm:order-none mt-2 sm:mt-0">
+                <div className="flex-1 min-w-[200px] w-full max-w-7xl mx-auto px-2 sm:px-6 lg:px-12 order-3 sm:order-none mt-2 sm:mt-0">
                   <SearchBar
                     onSearch={setCurrentQuery}
                     kidsMode={kidsMode}
