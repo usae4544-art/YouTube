@@ -1,10 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import VirtualKeyboard from './VirtualKeyboard';
 
 export default function GlobalKeyboardManager({ kidsMode }: { kidsMode: boolean }) {
-  const [activeInput, setActiveInput] = useState<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  
+  const activeInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const isOpenRef = useRef(false);
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
 
   useEffect(() => {
     const setInputMode = () => {
@@ -29,7 +35,7 @@ export default function GlobalKeyboardManager({ kidsMode }: { kidsMode: boolean 
         target.tagName === 'TEXTAREA'
       ) {
         const inputTarget = target as HTMLInputElement | HTMLTextAreaElement;
-        setActiveInput(inputTarget);
+        activeInputRef.current = inputTarget;
         setInputValue(inputTarget.value);
         setIsOpen(true);
         setTimeout(() => inputTarget.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
@@ -37,15 +43,14 @@ export default function GlobalKeyboardManager({ kidsMode }: { kidsMode: boolean 
     };
 
     const handleInput = (e: Event) => {
-      if (e.target === activeInput) {
+      if (e.target === activeInputRef.current) {
         setInputValue((e.target as HTMLInputElement).value);
       }
     };
-    
-    // We want to handle document clicks to close the keyboard if the click is outside the keyboard AND outside any input
+        
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (isOpen && !target.closest('.vk-wrapper') && target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+      if (isOpenRef.current && !target.closest('.vk-wrapper') && target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
         setIsOpen(false);
       }
     }
@@ -59,15 +64,14 @@ export default function GlobalKeyboardManager({ kidsMode }: { kidsMode: boolean 
       document.removeEventListener('input', handleInput);
       document.removeEventListener('mousedown', handleClick);
     };
-  }, [activeInput, isOpen]);
+  }, []);
 
   const handleKeyPress = (key: string) => {
+    const activeInput = activeInputRef.current;
     if (!activeInput) return;
-    
-    // Focus the input safely without triggering native keyboard if possible
-    // (inputMode='none' already handles this)
+        
     if (document.activeElement !== activeInput) {
-        activeInput.focus();
+        // activeInput.focus();
     }
 
     const start = activeInput.selectionStart ?? activeInput.value.length;
@@ -89,17 +93,16 @@ export default function GlobalKeyboardManager({ kidsMode }: { kidsMode: boolean 
       newVal = currentVal.substring(0, start) + ' ' + currentVal.substring(end);
       newPos = start + 1;
     } else {
-      // It's a character or pasted string
       newVal = currentVal.substring(0, start) + key + currentVal.substring(end);
       newPos = start + key.length;
     }
     
     setInputValue(newVal);
+
     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(activeInput), 'value')?.set;
     if (setter) {
       setter.call(activeInput, newVal);
       activeInput.dispatchEvent(new Event('input', { bubbles: true }));
-      // Restore caret selection immediately after the React state updates
       requestAnimationFrame(() => {
          try {
              activeInput.setSelectionRange(newPos, newPos);
@@ -109,6 +112,7 @@ export default function GlobalKeyboardManager({ kidsMode }: { kidsMode: boolean 
   };
 
   const handleSubmit = () => {
+    const activeInput = activeInputRef.current;
     if (activeInput) {
       if (activeInput.form) {
         activeInput.form.requestSubmit();

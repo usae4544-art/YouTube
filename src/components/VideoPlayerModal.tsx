@@ -31,6 +31,7 @@ export default function VideoPlayerModal({
   const [aiSummary, setAiSummary] = useState<AISummary | null>(null);
   const [chatMessages, setChatMessages] = useState<{role: 'user'|'assistant', text: string}[]>([]);
   const [chatInput, setChatInput] = useState("");
+  const [retryKey, setRetryKey] = useState(0);
   const [isChatting, setIsChatting] = useState(false);
   
   const handleChat = async () => {
@@ -117,6 +118,17 @@ export default function VideoPlayerModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose]);
+
+
+  // Network resiliency for YouTube iframe
+  useEffect(() => {
+    const handleOnline = () => {
+      // Force iframe reload when network reconnects to fix ERR_NETWORK_CHANGED
+      setRetryKey(prev => prev + 1);
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, []);
 
   const generateFallbackComments = () => {
     const fallback: YouTubeComment[] = [
@@ -273,6 +285,7 @@ export default function VideoPlayerModal({
           <div className="flex-1 flex flex-col bg-black">
             <div className="relative aspect-video w-full flex-1 max-h-[60vh] lg:max-h-none">
               <iframe
+                key={`yt-${retryKey}`}
                 id="youtube-player-frame"
                 src={`https://www.youtube-nocookie.com/embed/${video.id}?autoplay=1&rel=0&enablejsapi=1&origin=${window.location.origin || 'https://www.youtube.com'}`}
                 title={video.title}

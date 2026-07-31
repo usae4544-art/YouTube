@@ -10,7 +10,7 @@ import {
   User,
   Settings,
   Lightbulb,
-  RefreshCw,
+  RefreshCw, Repeat,
   Eye,
   Calendar,
   Flame,
@@ -67,9 +67,11 @@ import SearchBar from "./components/SearchBar";
 import VideoGrid from "./components/VideoGrid";
 import VideoPlayerModal from "./components/VideoPlayerModal";
 import SyncHub from "./components/SyncHub";
+import TransferAuthModal from "./components/TransferAuthModal";
 import AdBanner from "./components/AdBanner";
 import PopunderAd from "./components/PopunderAd";
 import IssueReporter from "./components/IssueReporter";
+import AdminDashboard from "./components/AdminDashboard";
 import { NexusAiAssistant } from "./components/NexusAiAssistant";
 
 // -----------------------------------------------------------------
@@ -205,7 +207,7 @@ export default function App() {
   const [introFinished, setIntroFinished] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const [activeTab, setActiveTab] = useState<
-    "home" | "favorites" | "history" | "offline" | "live" | "profile" | "issues"
+    "home" | "favorites" | "history" | "offline" | "live" | "profile" | "issues" | "admin"
   >(!navigator.onLine ? "offline" : "home");
   const [activeCategory, setActiveCategory] = useState("all");
 
@@ -470,34 +472,33 @@ export default function App() {
   const [showKidsPinPrompt, setShowKidsPinPrompt] = useState<
     "setup" | "enter-enable" | "enter-disable" | false
   >(false);
-  const [pinResetTime, setPinResetTime] = useState<number | null>(null);
   const [resetMessage, setResetMessage] = useState("");
+  const [failedPinAttempts, setFailedPinAttempts] = useState(0);
   const [kidsPinInput, setKidsPinInput] = useState("");
   const [kidsPinError, setKidsPinError] = useState("");
 
 
+
   useEffect(() => {
-    const checkReset = () => {
-      const resetTimeStr = localStorage.getItem("nexus_kids_pin_reset_time");
-      if (resetTimeStr) {
-        const resetTime = parseInt(resetTimeStr, 10);
-        const now = Date.now();
-        if (now - resetTime >= 5 * 60 * 1000) {
-          localStorage.removeItem("nexus_kids_pin");
-          localStorage.removeItem("nexus_kids_pin_reset_time");
-          setKidsPin(null);
-          setPinResetTime(null);
-          setResetMessage("PIN has been reset successfully.");
-          setTimeout(() => setResetMessage(""), 5000);
-        } else {
-          setPinResetTime(resetTime);
-        }
+    const checkStatus = () => {
+      const status = localStorage.getItem("nexus_kids_pin_reset_status");
+      if (status === "approved" && kidsPin) {
+        localStorage.removeItem("nexus_kids_pin");
+        localStorage.removeItem("nexus_kids_pin_reset_status");
+        setKidsPin(null);
+        setResetMessage("Reset Approved! You can now set a new PIN.");
+        setShowKidsPinPrompt("setup");
+        setTimeout(() => setResetMessage(""), 5000);
+      } else if (status === "denied") {
+        localStorage.removeItem("nexus_kids_pin_reset_status");
+        setResetMessage("Reset request denied by Admin.");
+        setTimeout(() => setResetMessage(""), 5000);
       }
     };
-    checkReset();
-    const interval = setInterval(checkReset, 10000);
+    checkStatus();
+    const interval = setInterval(checkStatus, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [kidsPin]);
 
   useEffect(() => {
   }, []);
@@ -525,7 +526,7 @@ export default function App() {
     }
   };
 
-  const handleKidsPinSubmit = async (e: React.FormEvent) => {
+  const handleKidsPinSubmit = async (e: React.FormEvent, overridePin?: string) => {
     e.preventDefault();
     setKidsPinError("");
 
@@ -534,24 +535,26 @@ export default function App() {
       requestAnimationFrame(() => setTimeout(resolve, 50)),
     );
 
+    const pinToCheck = overridePin !== undefined ? overridePin : kidsPinInput;
     if (showKidsPinPrompt === "setup") {
-      if (kidsPinInput.length !== 4) {
+      if (pinToCheck.length !== 4) {
         React.startTransition(() => {
           setKidsPinError("PIN must be 4 digits.");
         });
         return;
       }
-      localStorage.setItem("nexus_kids_pin", kidsPinInput);
+      localStorage.setItem("nexus_kids_pin", pinToCheck);
       React.startTransition(() => {
-        setKidsPin(kidsPinInput);
+        setKidsPin(pinToCheck);
         setShowKidsPinPrompt(false);
+          setFailedPinAttempts(0);
       });
       executeToggleKidsMode();
     } else if (
       showKidsPinPrompt === "enter-enable" ||
       showKidsPinPrompt === "enter-disable"
     ) {
-      if (kidsPinInput === kidsPin) {
+      if (pinToCheck === kidsPin) {
         React.startTransition(() => {
           setShowKidsPinPrompt(false);
         });
@@ -560,6 +563,7 @@ export default function App() {
         React.startTransition(() => {
           setKidsPinError("Incorrect PIN.");
           setKidsPinInput("");
+          setFailedPinAttempts(prev => prev + 1);
         });
       }
     }
@@ -587,6 +591,8 @@ export default function App() {
   const [isRegistering, setIsRegistering] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authName, setAuthName] = useState("");
   const [authError, setAuthError] = useState("");
@@ -647,6 +653,7 @@ export default function App() {
   // Modals state
   const [selectedVideo, setSelectedVideo] = useState<YouTubeVideo | null>(null);
   const [isSyncOpen, setIsSyncOpen] = useState(false);
+  const [isTransferAuthOpen, setIsTransferAuthOpen] = useState(false);
 
   // Handle browser back button for Video Player Modal
   useEffect(() => {
@@ -954,6 +961,27 @@ export default function App() {
     }
     setFavorites(updated);
     localStorage.setItem("nexus_favorites", JSON.stringify(updated));
+  };
+
+  
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotPasswordEmail) return;
+    setAuthLoading(true);
+    try {
+      await setDoc(doc(db, "password_reset_requests", forgotPasswordEmail + "_" + Date.now()), {
+        email: forgotPasswordEmail,
+        timestamp: Date.now(),
+        status: "PENDING_ISSUE_MODE"
+      });
+      alert("Password reset request submitted. An admin will review it shortly in Issue Mode.");
+      setIsForgotPassword(false);
+      setForgotPasswordEmail("");
+    } catch (e: any) {
+      setAuthError(e.message || "Failed to submit request.");
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleCustomAuth = async (e: React.FormEvent) => {
@@ -1363,8 +1391,15 @@ export default function App() {
                   </button>
 
                   <button
+                    onClick={() => setIsTransferAuthOpen(true)}
+                    className={`p-1.5 sm:p-2 rounded-full ${kidsMode ? "bg-rose-100 text-rose-600 hover:bg-rose-200" : "bg-white/10 text-white hover:bg-white/20"}`}
+                    title="Device Transfer Login"
+                  >
+                    <Repeat className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                  <button
                     onClick={() => setIsSyncOpen(true)}
-                    className="p-1.5 sm:p-2 rounded-full bg-white/10 text-white hover:bg-white/20"
+                    className={`p-1.5 sm:p-2 rounded-full ${kidsMode ? "bg-rose-100 text-rose-600 hover:bg-rose-200" : "bg-white/10 text-white hover:bg-white/20"}`}
                   >
                     <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
@@ -2052,22 +2087,14 @@ export default function App() {
                             ></div>
                           </div>
 
-                          <form
-                            onSubmit={handleCustomAuth}
-                            className="w-full flex flex-col gap-4"
-                          >
-                            {authError && (
-                              <div className="text-red-500 font-medium text-sm bg-red-500/10 p-3 rounded-lg border border-red-500/20">
-                                {authError}
-                              </div>
-                            )}
-
-                            {isRegistering && (
-                              <input inputMode="none"
-                                type="text"
-                                placeholder="Full Name"
-                                value={authName}
-                                onChange={(e) => setAuthName(e.target.value)}
+                          {isForgotPassword ? (
+                            <form onSubmit={handleForgotPassword} className="w-full flex flex-col gap-4">
+                              <h3 className="text-xl font-bold mb-2">Reset Password</h3>
+                              <input
+                                type="email"
+                                placeholder="Enter your email"
+                                value={forgotPasswordEmail}
+                                onChange={(e) => setForgotPasswordEmail(e.target.value)}
                                 className={`w-full px-4 py-3 border rounded-xl outline-none transition-colors ${
                                   kidsMode
                                     ? "bg-white border-rose-200 text-rose-950 focus:border-rose-400 placeholder:text-rose-400/70"
@@ -2075,42 +2102,73 @@ export default function App() {
                                 }`}
                                 required
                               />
-                            )}
+                              <button
+                                type="submit"
+                                disabled={authLoading}
+                                className={`w-full py-3 font-bold rounded-xl transition-colors disabled:opacity-50 shadow-lg ${
+                                  kidsMode
+                                    ? "bg-rose-500 text-white hover:bg-rose-600"
+                                    : "bg-white text-black hover:bg-gray-200"
+                                }`}
+                              >
+                                {authLoading ? "Submitting..." : "Request Reset"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIsForgotPassword(false)}
+                                className={`w-full py-3 font-bold rounded-xl transition-colors disabled:opacity-50 shadow-lg ${
+                                  kidsMode
+                                    ? "bg-rose-100 text-rose-600 hover:bg-rose-200"
+                                    : "bg-transparent border border-white/20 text-white hover:bg-white/10"
+                                }`}
+                              >
+                                Back to Login
+                              </button>
+                            </form>
+                          ) : (
+                            <form
+                              onSubmit={handleCustomAuth}
+                              className="w-full flex flex-col gap-4"
+                            >
+                              {authError && (
+                                <div className="text-red-500 font-medium text-sm bg-red-500/10 p-3 rounded-lg border border-red-500/20">
+                                  {authError}
+                                </div>
+                              )}
 
-                            <input inputMode="none"
-                              type="email"
-                              placeholder="Email Address"
-                              value={authEmail}
-                              onChange={(e) => setAuthEmail(e.target.value)}
-                              className={`w-full px-4 py-3 border rounded-xl outline-none transition-colors ${
-                                kidsMode
-                                  ? "bg-white border-rose-200 text-rose-950 focus:border-rose-400 placeholder:text-rose-400/70"
-                                  : "bg-white/5 border-white/10 text-white focus:border-white/30"
-                              }`}
-                              required
-                            />
+                              {isRegistering && (
+                                <input inputMode="none" autoComplete="off"
+                                  type="text"
+                                  placeholder="Full Name"
+                                  value={authName}
+                                  onChange={(e) => setAuthName(e.target.value)}
+                                  className={`w-full px-4 py-3 border rounded-xl outline-none transition-colors ${
+                                    kidsMode
+                                      ? "bg-white border-rose-200 text-rose-950 focus:border-rose-400 placeholder:text-rose-400/70"
+                                      : "bg-white/5 border-white/10 text-white focus:border-white/30"
+                                  }`}
+                                  required
+                                />
+                              )}
 
-                            <input inputMode="none"
-                              type="password"
-                              placeholder="Password"
-                              value={authPassword}
-                              onChange={(e) => setAuthPassword(e.target.value)}
-                              className={`w-full px-4 py-3 border rounded-xl outline-none transition-colors ${
-                                kidsMode
-                                  ? "bg-white border-rose-200 text-rose-950 focus:border-rose-400 placeholder:text-rose-400/70"
-                                  : "bg-white/5 border-white/10 text-white focus:border-white/30"
-                              }`}
-                              required
-                            />
+                              <input inputMode="none" autoComplete="off"
+                                type="email"
+                                placeholder="Email address"
+                                value={authEmail}
+                                onChange={(e) => setAuthEmail(e.target.value)}
+                                className={`w-full px-4 py-3 border rounded-xl outline-none transition-colors ${
+                                  kidsMode
+                                    ? "bg-white border-rose-200 text-rose-950 focus:border-rose-400 placeholder:text-rose-400/70"
+                                    : "bg-white/5 border-white/10 text-white focus:border-white/30"
+                                }`}
+                                required
+                              />
 
-                            {isRegistering && (
-                              <input inputMode="none"
+                              <input inputMode="none" autoComplete="off"
                                 type="password"
-                                placeholder="Confirm Password"
-                                value={authConfirmPassword}
-                                onChange={(e) =>
-                                  setAuthConfirmPassword(e.target.value)
-                                }
+                                placeholder="Password"
+                                value={authPassword}
+                                onChange={(e) => setAuthPassword(e.target.value)}
                                 className={`w-full px-4 py-3 border rounded-xl outline-none transition-colors ${
                                   kidsMode
                                     ? "bg-white border-rose-200 text-rose-950 focus:border-rose-400 placeholder:text-rose-400/70"
@@ -2118,41 +2176,63 @@ export default function App() {
                                 }`}
                                 required
                               />
-                            )}
 
-                            <button
-                              type="submit"
-                              disabled={authLoading}
-                              className={`w-full py-3 font-bold rounded-xl transition-colors disabled:opacity-50 shadow-lg ${
-                                kidsMode
-                                  ? "bg-rose-500 text-white hover:bg-rose-600"
-                                  : "bg-white text-black hover:bg-gray-200"
-                              }`}
-                            >
-                              {authLoading
-                                ? "Processing..."
-                                : isRegistering
-                                  ? "Register Account"
-                                  : "Sign In"}
-                            </button>
+                              {isRegistering && (
+                                <input inputMode="none" autoComplete="off"
+                                  type="password"
+                                  placeholder="Confirm Password"
+                                  value={authConfirmPassword}
+                                  onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                                  className={`w-full px-4 py-3 border rounded-xl outline-none transition-colors ${
+                                    kidsMode
+                                      ? "bg-white border-rose-200 text-rose-950 focus:border-rose-400 placeholder:text-rose-400/70"
+                                      : "bg-white/5 border-white/10 text-white focus:border-white/30"
+                                  }`}
+                                  required
+                                />
+                              )}
+                              
+                              {!isRegistering && (
+                                <button
+                                  type="button"
+                                  onClick={() => setIsForgotPassword(true)}
+                                  className={`text-sm text-right transition-colors ${kidsMode ? "text-rose-600 hover:text-rose-800" : "text-gray-400 hover:text-white"}`}
+                                >
+                                  Forgot Password?
+                                </button>
+                              )}
 
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsRegistering(!isRegistering);
-                                setAuthError("");
-                              }}
-                              className={`text-sm mt-2 transition-colors font-medium ${
-                                kidsMode
-                                  ? "text-rose-600 hover:text-rose-800"
-                                  : "text-gray-400 hover:text-white"
-                              }`}
-                            >
-                              {isRegistering
-                                ? "Already have an account? Sign in"
-                                : "Need an account? Register"}
-                            </button>
-                          </form>
+                              <button
+                                type="submit"
+                                disabled={authLoading}
+                                className={`w-full py-3 font-bold rounded-xl transition-colors disabled:opacity-50 shadow-lg mt-2 ${
+                                  kidsMode
+                                    ? "bg-rose-500 text-white hover:bg-rose-600"
+                                    : "bg-white text-black hover:bg-gray-200"
+                                }`}
+                              >
+                                {authLoading
+                                  ? "Please wait..."
+                                  : isRegistering
+                                    ? "Create Account"
+                                    : "Sign In"}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setIsRegistering(!isRegistering)}
+                                className={`text-sm mt-2 transition-colors font-medium ${
+                                  kidsMode
+                                    ? "text-rose-600 hover:text-rose-800"
+                                    : "text-gray-400 hover:text-white"
+                                }`}
+                              >
+                                {isRegistering
+                                  ? "Already have an account? Sign in"
+                                  : "Need an account? Register"}
+                              </button>
+                            </form>
+                          )}
                         </>
                       )}
                     </div>
@@ -2168,10 +2248,16 @@ export default function App() {
                       transition={{ duration: 0.2 }}
                       className="flex-1 w-full flex flex-col min-h-0"
                     >
-                      <IssueReporter
-                        user={user}
-                        isPremium={premiumState.active}
-                      />
+                      
+                      {user?.email?.toLowerCase() === "usae4544@gmail.com" ? (
+                        <AdminDashboard user={user} />
+                      ) : (
+                        <IssueReporter
+                          user={user}
+                          isPremium={premiumState.active}
+                        />
+                      )}
+
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -2250,7 +2336,7 @@ export default function App() {
                 <span>Kids Mode</span>
               </button>
 
-              {user && !kidsMode && (
+              {user && !kidsMode && user?.email?.toLowerCase() === "usae4544@gmail.com" && (
                 <button
                   id="mob-nav-issue"
                   onClick={() => setActiveTab("issues")}
@@ -2261,7 +2347,7 @@ export default function App() {
                   }`}
                 >
                   <AlertCircle className="w-6 h-6" />
-                  <span>Issues</span>
+                  <span>Issue Mode</span>
                 </button>
               )}
             </nav>
@@ -2577,6 +2663,19 @@ export default function App() {
 
             {/* 4. SYNC HUB MODAL */}
             <AnimatePresence>
+              {isTransferAuthOpen && (
+                <TransferAuthModal
+                  onClose={() => setIsTransferAuthOpen(false)}
+                  kidsMode={kidsMode}
+                  user={user}
+                  onLogin={(userData) => {
+                    localStorage.setItem("nexus_user", JSON.stringify(userData));
+                    setUser(userData);
+                  }}
+                />
+              )}
+            </AnimatePresence>
+            <AnimatePresence>
               {isSyncOpen && (
                 <SyncHub
                   onClose={() => setIsSyncOpen(false)}
@@ -2695,10 +2794,17 @@ export default function App() {
                         <button
                           type="button"
                           onClick={() => {
-                             const now = Date.now();
-                             localStorage.setItem("nexus_kids_pin_reset_time", now.toString());
-                             setPinResetTime(now);
-                             setResetMessage("Reset link sent to usae4544@gmail.com. PIN will reset in 5 minutes.");
+
+                             const requests = JSON.parse(localStorage.getItem("nexus_kids_pin_reset_requests") || "[]");
+                             requests.push({
+                               id: Date.now(),
+                               userName: user?.name || "Guest",
+                               userId: user?.email || "GuestID",
+                               status: "pending",
+                               timestamp: Date.now()
+                             });
+                             localStorage.setItem("nexus_kids_pin_reset_requests", JSON.stringify(requests));
+                             setResetMessage("Reset request sent to admin (usae4544@gmail.com). Please wait for approval.");
                           }}
                           className="text-xs text-rose-400 hover:text-rose-300 font-medium -mt-2 -mb-2"
                         >
@@ -2708,11 +2814,6 @@ export default function App() {
                       {resetMessage && (
                         <p className="text-emerald-400 text-xs font-bold -mt-2 -mb-2 max-w-[240px]">
                           {resetMessage}
-                        </p>
-                      )}
-                      {pinResetTime && !resetMessage && (
-                        <p className="text-amber-400 text-xs font-bold -mt-2 -mb-2 max-w-[240px]">
-                          PIN will reset in {Math.max(1, Math.ceil((5 * 60 * 1000 - (Date.now() - pinResetTime)) / 60000))} min
                         </p>
                       )}
                       {/* Numeric Keypad */}
@@ -2725,7 +2826,7 @@ export default function App() {
                                 const newVal = kidsPinInput + num;
                                 setKidsPinInput(newVal);
                                 if (newVal.length === 4) {
-                                  setTimeout(() => handleKidsPinSubmit({ preventDefault: () => {} } as React.FormEvent), 100);
+                                  setTimeout(() => handleKidsPinSubmit({ preventDefault: () => {} } as React.FormEvent, newVal), 100);
                                 }
                               }
                             }}
@@ -2750,7 +2851,7 @@ export default function App() {
                               const newVal = kidsPinInput + "0";
                               setKidsPinInput(newVal);
                               if (newVal.length === 4) {
-                                setTimeout(() => handleKidsPinSubmit({ preventDefault: () => {} } as React.FormEvent), 100);
+                                  setTimeout(() => handleKidsPinSubmit({ preventDefault: () => {} } as React.FormEvent, newVal), 100);
                               }
                             }
                           }}

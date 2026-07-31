@@ -40,13 +40,14 @@ export default function VirtualKeyboard({
   const [wallpaper, setWallpaper] = useState('dark-glass'); // dark-glass, carbon, midnight
 
   const [clipboardText, setClipboardText] = useState("");
+  const lastPastedTextRef = useRef("");
 
   useEffect(() => {
     const readClipboard = async () => {
       try {
         if (navigator.clipboard && navigator.clipboard.readText) {
           const text = await navigator.clipboard.readText();
-          if (text) {
+          if (text && text !== lastPastedTextRef.current) {
              setClipboardText(text);
           }
         }
@@ -65,10 +66,13 @@ export default function VirtualKeyboard({
            try {
              if (navigator.clipboard && navigator.clipboard.readText) {
                 const text = await navigator.clipboard.readText();
-                if (text) setClipboardText(text);
+                if (text && text !== lastPastedTextRef.current) setClipboardText(text);
              } else {
                 const selection = window.getSelection();
-                if (selection) setClipboardText(selection.toString());
+                if (selection) {
+                    const text = selection.toString();
+                    if (text && text !== lastPastedTextRef.current) setClipboardText(text);
+                }
              }
            } catch (e) {}
         }, 100);
@@ -146,12 +150,13 @@ export default function VirtualKeyboard({
 
   const lastKeyTimeRef = useRef(0);
 
-  const handleKeyClick = (key: string, e: React.PointerEvent<HTMLButtonElement>) => {
+  const handleKeyClick = (key: string, e: React.SyntheticEvent) => {
     if ('preventDefault' in e) e.preventDefault();
     e.stopPropagation();
 
     const now = Date.now();
-    if (now - lastKeyTimeRef.current < 50) return;
+    // removed throttle for ultra-fast typing
+    // if (now - lastKeyTimeRef.current < 50) return;
     lastKeyTimeRef.current = now;
 
     playClickSound();
@@ -195,9 +200,10 @@ export default function VirtualKeyboard({
   }
 
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {isOpen && (
         <motion.div
+          key="virtual-keyboard-overlay"
           initial={{ y: "100%" }}
           animate={{ y: 0 }}
           exit={{ y: "100%" }}
@@ -210,6 +216,7 @@ export default function VirtualKeyboard({
           <AnimatePresence>
             {clipboardText && (
               <motion.div
+                key="vk-clipboard-bar"
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
@@ -217,12 +224,22 @@ export default function VirtualKeyboard({
               >
                 <div 
                   className="flex-1 px-4 py-2 text-sm text-gray-300 truncate cursor-pointer hover:bg-white/5 transition-colors"
-                  onPointerDown={(e) => {
+                  onTouchStart={(e) => {
                     if ('preventDefault' in e) e.preventDefault();
                     e.stopPropagation();
                     playClickSound();
                     triggerHaptic();
                     onKeyPress(clipboardText);
+                    lastPastedTextRef.current = clipboardText;
+                    setClipboardText("");
+                  }}
+                  onMouseDown={(e) => {
+                    if ('preventDefault' in e) e.preventDefault();
+                    e.stopPropagation();
+                    playClickSound();
+                    triggerHaptic();
+                    onKeyPress(clipboardText);
+                    lastPastedTextRef.current = clipboardText;
                     setClipboardText("");
                   }}
                 >
@@ -230,9 +247,16 @@ export default function VirtualKeyboard({
                   {clipboardText}
                 </div>
                 <button 
-                   onPointerDown={(e) => {
+                   onTouchStart={(e) => {
                       if ('preventDefault' in e) e.preventDefault();
                       e.stopPropagation();
+                      lastPastedTextRef.current = clipboardText;
+                      setClipboardText("");
+                   }}
+                   onMouseDown={(e) => {
+                      if ('preventDefault' in e) e.preventDefault();
+                      e.stopPropagation();
+                      lastPastedTextRef.current = clipboardText;
                       setClipboardText("");
                    }}
                    className="p-3 text-gray-500 hover:text-white"
@@ -271,7 +295,7 @@ export default function VirtualKeyboard({
                     {topRow.map(key => (
                         <button
                             key={key.char}
-                            onPointerDown={(e) => handleKeyClick(key.char, e)}
+                            onTouchStart={(e) => handleKeyClick(key.char, e)} onMouseDown={(e) => { e.preventDefault(); handleKeyClick(key.char, e); }}
                             
                             className={`relative flex items-center justify-center rounded-[10px] font-medium text-lg sm:text-2xl transition-all select-none active:scale-95 ${keyStyleClass}`}
                             style={{ height: '3.4rem', minWidth: '2rem', flex: 1 }}
@@ -287,7 +311,7 @@ export default function VirtualKeyboard({
                   {midRow.map(char => (
                     <button 
                       key={char} 
-                      onPointerDown={(e) => handleKeyClick(char, e)} 
+                      onTouchStart={(e) => handleKeyClick(char, e)} onMouseDown={(e) => { e.preventDefault(); handleKeyClick(char, e); }} 
                        
                       className={`flex items-center justify-center rounded-[10px] font-medium text-lg sm:text-2xl transition-all select-none active:scale-95 ${keyStyleClass}`} 
                       style={{ height: '3.4rem', minWidth: '2rem', flex: 1 }}
@@ -318,7 +342,7 @@ export default function VirtualKeyboard({
                     return (
                       <button 
                         key={char} 
-                        onPointerDown={(e) => handleKeyClick(char, e)} 
+                        onTouchStart={(e) => handleKeyClick(char, e)} onMouseDown={(e) => { e.preventDefault(); handleKeyClick(char, e); }} 
                          
                         className={`flex items-center justify-center rounded-[10px] font-medium text-lg sm:text-2xl transition-all select-none active:scale-95 ${extraClass}`} 
                         style={{ height: '3.4rem', minWidth: '2rem', flex }}
@@ -360,7 +384,7 @@ export default function VirtualKeyboard({
                     return (
                       <button 
                         key={char} 
-                        onPointerDown={(e) => handleKeyClick(char, e)} 
+                        onTouchStart={(e) => handleKeyClick(char, e)} onMouseDown={(e) => { e.preventDefault(); handleKeyClick(char, e); }} 
                          
                         className={`flex items-center justify-center rounded-[10px] font-medium text-lg sm:text-2xl transition-all select-none active:scale-95 ${extraClass}`} 
                         style={{ height: '3.4rem', minWidth: '2.5rem', flex }}
@@ -376,6 +400,7 @@ export default function VirtualKeyboard({
              <AnimatePresence>
                {showSettings && (
                  <motion.div 
+                   key="vk-settings-panel"
                    initial={{ opacity: 0, y: 20 }}
                    animate={{ opacity: 1, y: 0 }}
                    exit={{ opacity: 0, y: 20 }}

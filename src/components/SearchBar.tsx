@@ -221,7 +221,7 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
               </div>
 
               {/* Core Input */}
-              <input
+              <input autoComplete="off"
                 id="search-input"
                 type="text"
                 inputMode="none" // Prevent native keyboard

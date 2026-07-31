@@ -37,7 +37,7 @@ const ai = new GoogleGenAI({
 });
 
 // YouTube Data API v3 Key (provided securely)
-const YOUTUBE_API_KEY = "AIzaSyC2FmiTp2-VvU8DmecUd_3ltLyXsVlY3PY";
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || "AIzaSyC2FmiTp2-VvU8DmecUd_3ltLyXsVlY3PY";
 const YOUTUBE_BASE_URL = "https://www.googleapis.com/youtube/v3";
 
 // Ensure synchronization storage directory exists in workspace
@@ -104,7 +104,7 @@ app.post(
   "/api/auth/setup",
   [
     body("deviceId").isString().trim().escape(),
-    body("password").isString().isLength({ min: 4 }).withMessage("Password too short")
+    body("password").isString().isLength({ min: 4, max: 128 }).withMessage("Password must be between 4 and 128 characters")
   ],
   async (req: any, res: any) => {
     const errors = validationResult(req);
@@ -132,7 +132,7 @@ app.post(
   loginRateLimiter,
   [
     body("deviceId").isString().trim().escape(),
-    body("password").isString()
+    body("password").isString().isLength({ max: 128 })
   ],
   async (req: any, res: any) => {
     const errors = validationResult(req);
@@ -192,7 +192,7 @@ app.post(
   [
     body("email").isEmail().withMessage("Invalid email address").normalizeEmail(),
     body("name").isString().trim().isLength({ min: 2 }).withMessage("Name must be at least 2 characters").customSanitizer(val => xss(val)),
-    body("password").isString().isLength({ min: 8 }).withMessage("Password must be at least 8 characters")
+    body("password").isString().isLength({ min: 8, max: 128 }).withMessage("Password must be between 8 and 128 characters")
       .matches(/[A-Za-z]/).withMessage("Password must contain at least one letter")
       .matches(/[0-9]/).withMessage("Password must contain at least one number")
       .matches(/[\W_]/).withMessage("Password must contain at least one symbol"),
@@ -230,7 +230,7 @@ app.post(
   loginRateLimiter,
   [
     body("email").isEmail().normalizeEmail(),
-    body("password").isString()
+    body("password").isString().isLength({ max: 128 })
   ],
   async (req: any, res: any) => {
     const errors = validationResult(req);
