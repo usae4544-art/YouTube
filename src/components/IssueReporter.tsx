@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Plus, X, Image as ImageIcon, Video, Send, MessageCircle, AlertCircle, Loader2 } from "lucide-react";
 import { GoogleUser } from "../types";
 import { motion, AnimatePresence } from "motion/react";
+import { apiFetchJson, hasBackendServer } from "../lib/nexusBridge";
 
 interface Reply {
   id: string;
@@ -54,10 +55,14 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
   const [replyUploadProgress, setReplyUploadProgress] = useState(0);
 
   useEffect(() => {
-    if (user) {
-      // Connect to the SSE endpoint for real-time updates
+    try {
+      const saved = localStorage.getItem("nexus_local_issues");
+      if (saved) setIssues(JSON.parse(saved));
+    } catch {}
+
+    if (user && hasBackendServer()) {
       const eventSource = new EventSource('/api/issues/stream');
-      
+
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
@@ -67,8 +72,7 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
         }
       };
 
-      eventSource.onerror = (e) => {
-        console.error("EventSource failed.", e);
+      eventSource.onerror = () => {
         eventSource.close();
       };
 
@@ -78,17 +82,9 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
     }
   }, [user]);
 
-  // Keep this around if we still want to manually fetch, but SSE provides initial data too.
   const fetchIssues = async () => {
-    try {
-      const res = await fetch("/api/issues");
-      if (res.ok) {
-        const data = await res.json();
-        setIssues(data);
-      }
-    } catch (e) {
-      console.error("Failed to fetch issues", e);
-    }
+    const data = await apiFetchJson<Issue[]>("/api/issues");
+    if (data) setIssues(data);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, isReply: boolean = false) => {
@@ -141,11 +137,11 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
 
     setIsSubmitting(true);
     setUploadProgress(0);
-    
+
     try {
       await simulateUploadProgress(setUploadProgress);
-      
-      const res = await fetch("/api/issues", {
+
+      const created = await apiFetchJson<Issue>("/api/issues", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -159,13 +155,31 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
         })
       });
 
-      if (res.ok) {
-        // SSE will provide the updated list, no need to manually update state here
-        setDescription("");
-        setAttachment(null);
-        setAttachmentType(null);
-        setIsImportant(false);
+      const localIssue: Issue = created || {
+        id: Date.now().toString(),
+        userEmail: user.email,
+        userPicture: user.picture,
+        userName: user.name,
+        description,
+        attachment: attachment || undefined,
+        attachmentType: attachmentType || undefined,
+        isImportant: Boolean(isImportant),
+        replies: [],
+        createdAt: new Date().toISOString()
+      };
+
+      if (!created) {
+        setIssues((prev) => {
+          const next = [localIssue, ...prev];
+          localStorage.setItem("nexus_local_issues", JSON.stringify(next));
+          return next;
+        });
       }
+
+      setDescription("");
+      setAttachment(null);
+      setAttachmentType(null);
+      setIsImportant(false);
     } catch (error) {
       console.error("Failed to post issue", error);
     } finally {
@@ -176,14 +190,14 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
 
   const handleReplySubmit = async (issueId: string) => {
     if (!replyDescription.trim() || !user) return;
-    
+
     setIsSubmittingReply(true);
     setReplyUploadProgress(0);
-    
+
     try {
       await simulateUploadProgress(setReplyUploadProgress);
-      
-      const res = await fetch(`/api/issues/${issueId}/reply`, {
+
+      const createdReply = await apiFetchJson<Reply>(`/api/issues/${issueId}/reply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -196,13 +210,32 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
         })
       });
 
-      if (res.ok) {
-        // SSE will provide the updated list, no need to manually update state here
-        setReplyingTo(null);
-        setReplyDescription("");
-        setReplyAttachment(null);
-        setReplyAttachmentType(null);
+      if (!createdReply) {
+        const localReply: Reply = {
+          id: Date.now().toString(),
+          userEmail: user.email,
+          userPicture: user.picture,
+          userName: user.name,
+          description: replyDescription,
+          attachment: replyAttachment || undefined,
+          attachmentType: replyAttachmentType || undefined,
+          createdAt: new Date().toISOString()
+        };
+        setIssues((prev) => {
+          const next = prev.map((iss) =>
+            iss.id === issueId
+              ? { ...iss, replies: [...(iss.replies || []), localReply] }
+              : iss
+          );
+          localStorage.setItem("nexus_local_issues", JSON.stringify(next));
+          return next;
+        });
       }
+
+      setReplyingTo(null);
+      setReplyDescription("");
+      setReplyAttachment(null);
+      setReplyAttachmentType(null);
     } catch (error) {
       console.error("Failed to post reply", error);
     } finally {
@@ -248,10 +281,6 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
                     <textarea 
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      onFocus={() => {
-                      }}
-                      inputMode="none"
-                      
                       placeholder="Describe the bug or issue you are experiencing..."
                       className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-sm text-white resize-none h-24 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-text"
                       required
@@ -441,10 +470,6 @@ export default function IssueReporter({ user, isPremium }: IssueReporterProps) {
                               <textarea 
                                 value={replyDescription}
                                 onChange={(e) => setReplyDescription(e.target.value)}
-                                onFocus={() => {
-                                }}
-                                inputMode="none"
-                                
                                 placeholder="Write a reply or provide a solution..."
                                 className="w-full bg-black/40 border border-white/10 rounded p-2 text-sm text-white resize-none h-16 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-text"
                               />

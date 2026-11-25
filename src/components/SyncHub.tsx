@@ -5,6 +5,7 @@ import {
   Tv, Smartphone, Laptop, Unlink, Copy, Check
 } from "lucide-react";
 import { SyncSession } from "../types";
+import { apiFetchJson } from "../lib/nexusBridge";
 
 interface SyncHubProps {
   onClose: () => void;
@@ -52,18 +53,39 @@ export default function SyncHub({
     setIsCreating(true);
     setErrorMsg("");
     try {
-      const res = await fetch("/api/sync/create", { method: "POST" });
-      const data = await res.json();
-      
-      if (data.code) {
+      const data = await apiFetchJson<SyncSession>("/api/sync/create", {
+        method: "POST",
+      });
+
+      if (data?.code) {
         onSetSyncCode(data.code);
         onApplySyncSession(data);
         setSuccessMsg("Sync session generated! Use this code to link other screens.");
       } else {
-        setErrorMsg("Failed to generate code from backend.");
+        const localCode =
+          "YT-" + Math.random().toString(36).substring(2, 6).toUpperCase();
+        const localSession: SyncSession = {
+          code: localCode,
+          favorites: JSON.parse(localStorage.getItem("nexus_favorites") || "[]"),
+          history: JSON.parse(localStorage.getItem("nexus_history") || "[]"),
+          playlists: [],
+          preferences: {
+            theme: kidsMode ? "kids" : "dark",
+            kidsMode,
+            fontSize: "md",
+          },
+          updatedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(
+          `nexus_local_sync_${localCode}`,
+          JSON.stringify(localSession),
+        );
+        onSetSyncCode(localCode);
+        onApplySyncSession(localSession);
+        setSuccessMsg(`Local device sync profile ${localCode} saved!`);
       }
-    } catch (e) {
-      setErrorMsg("Failed to connect to synchronization server.");
+    } catch {
+      setErrorMsg("Could not create sync session.");
     } finally {
       setIsCreating(false);
     }
@@ -84,19 +106,23 @@ export default function SyncHub({
     }
 
     try {
-      const res = await fetch(`/api/sync/get/${codeToUse}`);
-      if (res.status === 404) {
-        setErrorMsg("Invalid Sync Code. Please check the code and try again.");
-        setIsLinking(false);
+      const remoteData = await apiFetchJson<SyncSession>(
+        `/api/sync/get/${encodeURIComponent(codeToUse)}`,
+      );
+      const localRaw = localStorage.getItem(`nexus_local_sync_${codeToUse}`);
+      const data: SyncSession | null =
+        remoteData || (localRaw ? JSON.parse(localRaw) : null);
+
+      if (!data) {
+        setErrorMsg("Sync code not found on this device or server.");
         return;
       }
 
-      const data: SyncSession = await res.json();
       onSetSyncCode(codeToUse);
       onApplySyncSession(data);
       setSuccessMsg("Linked successfully! Your video feeds are now synchronized.");
       setInputCode("");
-    } catch (e) {
+    } catch {
       setErrorMsg("Could not sync with the specified code.");
     } finally {
       setIsLinking(false);

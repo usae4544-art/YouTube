@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Search, Sparkles, X, Clock, AlertTriangle, HelpCircle, Mic, History } from "lucide-react";
+import { Search, Sparkles, X, AlertTriangle, Mic } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { SearchSuggestionResponse } from "../types";
+import {
+  fetchSuggestionsClient,
+  isNativeAndroid,
+  requestNativePermissions,
+} from "../lib/nexusBridge";
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
@@ -10,10 +14,18 @@ interface SearchBarProps {
   onFocusChange?: (isFocused: boolean) => void;
 }
 
-const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchBarProps) => {
+const SearchBar = ({
+  onSearch,
+  kidsMode,
+  fontSizeClass,
+  onFocusChange,
+}: SearchBarProps) => {
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [safetyCheck, setSafetyCheck] = useState<{ safe: boolean; explanation?: string }>({ safe: true });
+  const [safetyCheck, setSafetyCheck] = useState<{
+    safe: boolean;
+    explanation?: string;
+  }>({ safe: true });
   const [isLoading, setIsLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
@@ -22,142 +34,145 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleVoiceSearch = () => {
+    if (isNativeAndroid() && window.NexusAndroid?.hasMicPermission?.() === false) {
+      requestNativePermissions();
+      setVoiceError("Allow Microphone permission and tap Mic again.");
+      setTimeout(() => setVoiceError(""), 4000);
+      return;
+    }
+
     let recognition: any;
     try {
-      if ('SpeechRecognition' in window) {
+      if ("SpeechRecognition" in window) {
         const SpeechRecognition = (window as any).SpeechRecognition;
         recognition = new SpeechRecognition();
-      } else if ('webkitSpeechRecognition' in window) {
+      } else if ("webkitSpeechRecognition" in window) {
         const WebkitSpeechRecognition = (window as any).webkitSpeechRecognition;
         recognition = new WebkitSpeechRecognition();
       } else {
-        setVoiceError("Voice search is not supported in this browser.");
+        setVoiceError("Voice search is unavailable on this WebView/device.");
         setTimeout(() => setVoiceError(""), 4000);
         return;
       }
-    } catch (e) {
-      setVoiceError("Please open the app in a new tab (↗) to use voice search.");
-      setTimeout(() => setVoiceError(""), 5000);
+    } catch {
+      setVoiceError("Voice search could not start. Check microphone permission.");
+      setTimeout(() => setVoiceError(""), 4000);
       return;
     }
+
     recognition.continuous = false;
     recognition.interimResults = false;
+    recognition.lang = "en-IN";
 
-    recognition.onstart = () => {
-      setIsListening(true);
-    };
+    recognition.onstart = () => setIsListening(true);
 
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInputValue(transcript);
-      addToHistory(transcript);
-      onSearch(transcript);
+      const transcript = event.results?.[0]?.[0]?.transcript || "";
+      if (transcript) {
+        setInputValue(transcript);
+        addToHistory(transcript);
+        onSearch(transcript);
+      }
       setIsOpen(false);
     };
 
     recognition.onerror = (event: any) => {
-      console.error("Speech recognition error", event.error);
       setIsListening(false);
-      if (event.error === 'not-allowed') {
-        setVoiceError("Microphone access denied. Please allow it or open in a new tab.");
-        setTimeout(() => setVoiceError(""), 5000);
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        requestNativePermissions();
+        setVoiceError("Microphone access denied. Enable Mic permission in App Settings.");
       } else {
-        setVoiceError("Voice search error: " + event.error);
-        setTimeout(() => setVoiceError(""), 5000);
+        setVoiceError("Voice search unavailable (" + event.error + ").");
       }
+      setTimeout(() => setVoiceError(""), 4500);
     };
 
-    recognition.onend = () => {
+    recognition.onend = () => setIsListening(false);
+
+    try {
+      recognition.start();
+    } catch {
       setIsListening(false);
-    };
-
-    recognition.start();
+      setVoiceError("Unable to start voice capture right now.");
+      setTimeout(() => setVoiceError(""), 4000);
+    }
   };
 
-  // Load Search History on Mount
   useEffect(() => {
-    const saved = localStorage.getItem("nexus_search_history");
-    if (saved) {
-      setHistory(JSON.parse(saved));
-    }
+    try {
+      const saved = localStorage.getItem("nexus_search_history");
+      if (saved) setHistory(JSON.parse(saved));
+    } catch {}
   }, []);
 
-  // Save Search History helper
   const addToHistory = (q: string) => {
     if (!q.trim()) return;
-    const filtered = history.filter((item) => item.toLowerCase() !== q.toLowerCase());
-    const updated = [q, ...filtered].slice(0, 6); // keep last 6 searches
+    const filtered = history.filter(
+      (item) => item.toLowerCase() !== q.toLowerCase(),
+    );
+    const updated = [q.trim(), ...filtered].slice(0, 6);
     setHistory(updated);
     localStorage.setItem("nexus_search_history", JSON.stringify(updated));
   };
 
-
-
-  // Close suggestions dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         requestAnimationFrame(() => {
-          setTimeout(() => setIsOpen(false), 200);
+          setTimeout(() => setIsOpen(false), 160);
         });
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Debounced API Call for Suggestions & Instant Search
   useEffect(() => {
     if (!isOpen && !inputValue) return;
+    let active = true;
     const timer = setTimeout(async () => {
       setIsLoading(true);
-      
-      // Instant search trigger
-      if (inputValue.trim() !== "") {
-        if (safetyCheck.safe) {
-          onSearch(inputValue);
-        }
-      } else {
-        onSearch("");
-      }
-
       try {
-        const res = await fetch("/api/suggest", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            q: inputValue,
-            kidsMode,
-            history
-          })
+        const data = await fetchSuggestionsClient({
+          q: inputValue,
+          kidsMode,
+          history,
         });
-        const data = await res.json();
+        if (!active) return;
         setSuggestions(data.suggestions || []);
-        setSafetyCheck({ safe: data.safe ?? true, explanation: data.safetyExplanation });
+        setSafetyCheck({
+          safe: data.safe ?? true,
+          explanation: data.safetyExplanation,
+        });
       } catch (err) {
         console.error("Failed to fetch suggestions:", err);
       } finally {
-        setIsLoading(false);
+        if (active) setIsLoading(false);
       }
-    }, 400);
+    }, 350);
 
-    return () => clearTimeout(timer);
-  }, [inputValue, kidsMode, isOpen]);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [inputValue, kidsMode, isOpen, history]);
 
   const handleSubmit = (e?: React.FormEvent | Event) => {
     if (e && e.preventDefault) e.preventDefault();
-    if (!inputValue.trim()) return;
-    
-    if (!safetyCheck.safe) {
-      setVoiceError("Please adjust your search. Let's find something safe!");
-      setTimeout(() => setVoiceError(""), 4000);
+    if (!inputValue.trim()) {
+      onSearch("");
+      setIsOpen(false);
       return;
     }
-    
+
+    if (!safetyCheck.safe) {
+      setVoiceError("Please pick a kid-safe topic!");
+      setTimeout(() => setVoiceError(""), 3500);
+      return;
+    }
+
     addToHistory(inputValue);
-    onSearch(inputValue);
+    onSearch(inputValue.trim());
     setIsOpen(false);
   };
 
@@ -172,25 +187,31 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
     setInputValue("");
     setSuggestions([]);
     setSafetyCheck({ safe: true });
+    onSearch("");
   };
 
   const highlightMatch = (text: string, query: string, isKidsMode: boolean) => {
     if (!query.trim()) return <>{text}</>;
-    // escape regex characters in query
-    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const parts = text.split(new RegExp(`(${escapedQuery})`, "gi"));
     return (
       <>
         {parts.map((part, i) =>
           part.toLowerCase() === query.toLowerCase() ? (
-            <span key={i} className={`font-bold ${isKidsMode ? "text-rose-900" : "text-white"}`}>
+            <span
+              key={i}
+              className={`font-bold ${isKidsMode ? "text-rose-900" : "text-white"}`}
+            >
               {part}
             </span>
           ) : (
-            <span key={i} className={isKidsMode ? "text-rose-600" : "text-gray-400"}>
+            <span
+              key={i}
+              className={isKidsMode ? "text-rose-600" : "text-gray-400"}
+            >
               {part}
             </span>
-          )
+          ),
         )}
       </>
     );
@@ -198,37 +219,45 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
 
   return (
     <div className={`relative w-full mx-auto z-40 ${fontSizeClass}`} ref={dropdownRef}>
-      {voiceError && (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="absolute -top-12 left-0 right-0 mx-auto w-max px-4 py-2 bg-red-500 text-white text-sm font-medium rounded-full shadow-lg z-50 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4" />
-          {voiceError}
-        </motion.div>
-      )}
+      <AnimatePresence>
+        {voiceError && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="absolute -top-12 left-0 right-0 mx-auto max-w-full w-max px-4 py-2 bg-red-600 text-white text-xs sm:text-sm font-medium rounded-full shadow-lg z-50 flex items-center gap-2"
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="truncate">{voiceError}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="flex items-center gap-2">
         <form onSubmit={handleSubmit} className="relative flex-1 min-w-0">
           <div className="flex items-center w-full shadow-sm rounded-full">
-            {/* Input Wrapper */}
             <div
               className={`flex-1 flex items-center min-w-0 relative transition-all duration-300 rounded-l-full border ${
                 kidsMode
-                  ? "bg-white/90 border-rose-200 focus-within:border-rose-400 focus-within:bg-white focus-within:ml-0"
-                  : "bg-[#121212] border-white/10 focus-within:border-[#3ea6ff] focus-within:bg-[#121212]"
+                  ? "bg-white/95 border-rose-200 focus-within:border-rose-400 focus-within:bg-white"
+                  : "bg-[#121212] border-white/10 focus-within:border-[#3ea6ff]"
               }`}
             >
-              {/* Magnifying Glass */}
               <div className="pl-4 pr-1 hidden sm:flex items-center justify-center">
-                <Search className={`w-5 h-5 ${kidsMode ? "text-rose-400" : "text-gray-400"}`} />
+                <Search
+                  className={`w-5 h-5 ${kidsMode ? "text-rose-400" : "text-gray-400"}`}
+                />
               </div>
 
-              {/* Core Input */}
-              <input autoComplete="off"
+              <input
+                autoComplete="off"
                 id="search-input"
-                type="text"
-                inputMode="none" // Prevent native keyboard
+                type="search"
                 value={inputValue}
                 onChange={(e) => {
-                  setInputValue(e.target.value);
+                  const val = e.target.value;
+                  setInputValue(val);
                   setIsOpen(true);
+                  if (!val.trim()) onSearch("");
                 }}
                 onFocus={() => {
                   setIsOpen(true);
@@ -237,23 +266,22 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
                 onBlur={() => {
                   if (onFocusChange) onFocusChange(false);
                 }}
-                placeholder={
-                  kidsMode ? "Search fun cartoons! 🦕" : "Search"
-                }
-                className={`w-full h-[48px] sm:h-[56px] box-border min-w-0 px-4 text-[16px] sm:text-[18px] leading-normal font-bold bg-transparent outline-none border-none placeholder-gray-500 tracking-wide overflow-hidden text-ellipsis ${
+                placeholder={kidsMode ? "Search fun cartoons!" : "Search videos..."}
+                className={`w-full h-[46px] sm:h-[52px] box-border min-w-0 px-4 text-[15px] sm:text-[17px] leading-normal font-semibold bg-transparent outline-none border-none placeholder-gray-500 tracking-wide overflow-hidden text-ellipsis ${
                   kidsMode ? "text-rose-950" : "text-white"
                 }`}
-                style={{ paddingRight: '3.5rem' }}
+                style={{ paddingRight: "3.25rem" }}
               />
 
-              {/* Right Action Icons (Clear / Sparkle loading indicator) */}
-              <div className="absolute right-3 flex items-center gap-2 h-full top-0">
+              <div className="absolute right-2 flex items-center gap-1 h-full top-0">
                 {isLoading && (
                   <motion.div
                     animate={{ rotate: 360 }}
                     transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
                   >
-                    <Sparkles className={`w-5 h-5 ${kidsMode ? "text-rose-400" : "text-gray-400"}`} />
+                    <Sparkles
+                      className={`w-4 h-4 ${kidsMode ? "text-rose-400" : "text-gray-400"}`}
+                    />
                   </motion.div>
                 )}
                 {inputValue && (
@@ -261,20 +289,21 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
                     id="search-clear-btn"
                     type="button"
                     onClick={handleClear}
-                    className={`flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
-                      kidsMode ? "hover:bg-rose-200/50 text-rose-500" : "hover:bg-white/10 text-gray-400 hover:text-white"
+                    className={`flex items-center justify-center w-9 h-9 rounded-full transition-colors ${
+                      kidsMode
+                        ? "hover:bg-rose-200/50 text-rose-500"
+                        : "hover:bg-white/10 text-gray-400 hover:text-white"
                     }`}
                   >
-                    <X className="w-5 h-5" />
+                    <X className="w-4 h-4" />
                   </button>
                 )}
               </div>
             </div>
 
-            {/* Search Button (YouTube Style) */}
             <button
               type="submit"
-              className={`w-[60px] sm:w-[80px] h-[48px] sm:h-[56px] flex items-center justify-center shrink-0 cursor-pointer transition-colors rounded-r-full border-y border-r border-l-0 ${
+              className={`w-[54px] sm:w-[74px] h-[46px] sm:h-[52px] flex items-center justify-center shrink-0 cursor-pointer transition-colors rounded-r-full border-y border-r border-l-0 ${
                 kidsMode
                   ? "bg-rose-100 border-rose-200 hover:bg-rose-200 text-rose-600"
                   : "bg-[#222222] border-white/10 hover:bg-[#303030] text-gray-200"
@@ -285,7 +314,6 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
             </button>
           </div>
 
-          {/* Auto Suggestions dropdown attached to input */}
           <AnimatePresence>
             {isOpen && suggestions.length > 0 && (
               <motion.div
@@ -293,27 +321,28 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.15, ease: "easeOut" }}
-                className={`absolute left-0 right-0 top-full mt-1 py-3 rounded-xl shadow-lg border ${
+                transition={{ duration: 0.16, ease: "easeOut" }}
+                className={`absolute left-0 right-0 top-full mt-1 py-2.5 rounded-xl shadow-xl border z-50 ${
                   kidsMode
-                    ? "bg-white border-rose-150 text-rose-900"
-                    : "bg-[#222222] border-[#303030] text-gray-200"
+                    ? "bg-white border-rose-200 text-rose-900"
+                    : "bg-[#1e1e26] border-white/10 text-gray-200"
                 }`}
               >
-                {/* Safety block message in Kids Mode */}
                 {!safetyCheck.safe && (
-                  <div className="mx-4 mb-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex gap-3 items-start">
+                  <div className="mx-3 mb-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 flex gap-2.5 items-start">
                     <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                     <div>
-                      <p className="font-bold text-amber-400 text-sm">Oops, safety check! 🦖</p>
+                      <p className="font-bold text-amber-400 text-xs sm:text-sm">
+                        Safety Check
+                      </p>
                       <p className="text-gray-300 mt-0.5 text-xs">
-                        {safetyCheck.explanation || "That search query might include mature topics. Let's find something safe!"}
+                        {safetyCheck.explanation ||
+                          "Let's choose a kid-friendly search!"}
                       </p>
                     </div>
                   </div>
                 )}
 
-                {/* suggestions list */}
                 {safetyCheck.safe && (
                   <ul className="flex flex-col">
                     {suggestions.slice(0, 4).map((item, index) => (
@@ -321,13 +350,17 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
                         <button
                           type="button"
                           onClick={() => selectSuggestion(item)}
-                          className={`w-full text-left px-5 py-2 text-base flex items-center gap-4 transition-colors cursor-pointer ${
+                          className={`w-full text-left px-4 py-2 text-sm sm:text-base flex items-center gap-3 transition-colors cursor-pointer ${
                             kidsMode
                               ? "hover:bg-rose-50 text-rose-900 font-medium"
-                              : "hover:bg-[#333333] text-white"
+                              : "hover:bg-white/10 text-white"
                           }`}
                         >
-                          <Search className={`w-4 h-4 shrink-0 ${kidsMode ? "text-rose-400" : "text-gray-400"}`} />
+                          <Search
+                            className={`w-4 h-4 shrink-0 ${
+                              kidsMode ? "text-rose-400" : "text-gray-400"
+                            }`}
+                          />
                           <span className="flex-1 truncate">
                             {highlightMatch(item, inputValue, kidsMode)}
                           </span>
@@ -341,19 +374,23 @@ const SearchBar = ({ onSearch, kidsMode, fontSizeClass, onFocusChange }: SearchB
           </AnimatePresence>
         </form>
 
-        {/* Microphone Button */}
-        <button
+        <motion.button
+          whileTap={{ scale: 0.92 }}
           type="button"
           onClick={handleVoiceSearch}
-          className={`flex-shrink-0 w-[48px] h-[48px] sm:w-[56px] sm:h-[56px] rounded-full flex items-center justify-center transition-all cursor-pointer ${
-            isListening 
-              ? kidsMode ? "bg-rose-500 text-white animate-pulse shadow-rose-300" : "bg-red-500 text-white animate-pulse shadow-red-500/50"
-              : kidsMode ? "bg-rose-100 text-rose-500 hover:bg-rose-200" : "bg-[#181818] hover:bg-[#303030] text-white"
+          className={`flex-shrink-0 w-[46px] h-[46px] sm:w-[52px] sm:h-[52px] rounded-full flex items-center justify-center transition-all cursor-pointer ${
+            isListening
+              ? kidsMode
+                ? "bg-rose-500 text-white animate-pulse shadow-lg shadow-rose-300"
+                : "bg-red-500 text-white animate-pulse shadow-lg shadow-red-500/50"
+              : kidsMode
+                ? "bg-rose-100 text-rose-500 hover:bg-rose-200"
+                : "bg-[#181818] hover:bg-[#303030] text-white border border-white/10"
           }`}
           title="Voice Search"
         >
-          <Mic className="w-5 h-5 sm:w-6 sm:h-6" />
-        </button>
+          <Mic className="w-5 h-5" />
+        </motion.button>
       </div>
     </div>
   );

@@ -169,3 +169,9 @@ input, button, textarea, select {
   font-size: 1.25rem; /* Base 20px */
 }
 
+.safe-area-pad {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+

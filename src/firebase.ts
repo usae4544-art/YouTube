@@ -1,15 +1,13 @@
 import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
+import { getAnalytics, isSupported as isAnalyticsSupported } from "firebase/analytics";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, enableNetwork, disableNetwork } from "firebase/firestore";
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 
-// Obfuscated Firebase Configuration
-// To prevent simple string extraction via decompilation
 const getVal = (b64: string) => {
   try {
     return atob(b64);
-  } catch (e) {
+  } catch {
     return "";
   }
 };
@@ -26,45 +24,43 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Setup App Check with debug token for development
-if (typeof window !== "undefined") {
-  (window as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+// Initialize App Check only when a real reCAPTCHA Enterprise key is configured
+const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
+if (typeof window !== "undefined" && recaptchaSiteKey) {
   try {
     initializeAppCheck(app, {
-      provider: new ReCaptchaEnterpriseProvider("placeholder-key-replace-in-production"),
+      provider: new ReCaptchaEnterpriseProvider(recaptchaSiteKey),
       isTokenAutoRefreshEnabled: true
     });
   } catch (e) {
-    console.warn("App Check initialization failed", e);
+    console.warn("App Check initialization skipped:", e);
   }
 }
 
-const analytics = getAnalytics(app);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-
-// Add network resiliency wrapper for Firestore and Auth
-import { enableNetwork, disableNetwork } from "firebase/firestore";
-
 if (typeof window !== "undefined") {
-  window.addEventListener('online', async () => {
-    console.log("Network restored. Reconnecting Firebase...");
+  isAnalyticsSupported()
+    .then((supported) => {
+      if (supported) getAnalytics(app);
+    })
+    .catch(() => {});
+
+  window.addEventListener("online", async () => {
     try {
       await enableNetwork(db);
     } catch (e) {
-      console.warn("Error re-enabling network:", e);
+      console.warn("Error re-enabling Firestore network:", e);
     }
   });
-  window.addEventListener('offline', async () => {
-    console.log("Network disconnected. Firebase running in offline mode.");
+
+  window.addEventListener("offline", async () => {
     try {
       await disableNetwork(db);
     } catch (e) {
-      console.warn("Error disabling network:", e);
+      console.warn("Error disabling Firestore network:", e);
     }
   });
 }
 
-
+export const auth = getAuth(app);
+export const db = getFirestore(app);
 export default app;

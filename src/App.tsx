@@ -57,7 +57,8 @@ import {
   Trash2,
   Check,
   Fingerprint,
-  
+  Crown,
+  Keyboard,
 } from "lucide-react";
 
 import { YouTubeVideo, SyncSession } from "./types";
@@ -73,120 +74,21 @@ import PopunderAd from "./components/PopunderAd";
 import IssueReporter from "./components/IssueReporter";
 import AdminDashboard from "./components/AdminDashboard";
 import { NexusAiAssistant } from "./components/NexusAiAssistant";
+import {
+  CURATED_DEVOTIONAL_VIDEOS,
+  CURATED_KIDS_VIDEOS,
+  apiFetchJson,
+  fetchYouTubeSearchClient,
+  isNativeAndroid,
+  loginVaultPinClient,
+  notifyVideoPlayAds,
+  parseYouTubeItems,
+  requestNativePermissions,
+  setupVaultPinClient,
+} from "./lib/nexusBridge";
 
-// -----------------------------------------------------------------
-// RESILIENT PLAYGROUND FALLBACK VIDEOS
-// (To ensure the app remains gorgeous and fully functional even if API quota is reached!)
-// -----------------------------------------------------------------
-const FALLBACK_VIDEOS: YouTubeVideo[] = [
-  {
-    id: "bhakti1",
-    title: "Bageshwar Dham Sarkar | Guruji Ke Divya Darshan Aur Updesh",
-    thumbnail:
-      "https://images.unsplash.com/photo-1590059942691-62d22d5f3069?w=600&auto=format&fit=crop&q=60",
-    channelId: "BageshwarDham",
-    channelTitle: "Guruji Khabar",
-    description:
-      "Janiye Guruji Bageshwar Dham Sarkar ke divya pravachan aur khabar.",
-    publishedAt: "2025-05-12T00:00:00Z",
-    viewCount: "1250000",
-    likeCount: "120000",
-    duration: "25:12",
-    tags: ["Bhakti", "Guruji Khabar", "Bageshwar Dham"],
-  },
-  {
-    id: "bhakti2",
-    title: "Shree Hanuman Chalisa (Hanuman Ashtak) | Best Devotional Song",
-    thumbnail:
-      "https://images.unsplash.com/photo-1570716616086-a21a50df8ddf?w=600&auto=format&fit=crop&q=60",
-    channelId: "BhaktiSagar",
-    channelTitle: "Bhakti Song Option",
-    description:
-      "Sunein pavitra Hanuman Chalisa. Achha achha video aur bhakti geet.",
-    publishedAt: "2024-03-14T12:00:00Z",
-    viewCount: "8900000",
-    likeCount: "420000",
-    duration: "10:35",
-    tags: ["Bhakti Song", "Devotional", "Hanuman Chalisa"],
-  },
-  {
-    id: "bhakti3",
-    title: "Pandit Pradeep Mishra Ji Ke Anmol Vachan | Shiv Puran Katha",
-    thumbnail:
-      "https://images.unsplash.com/photo-1601633519842-1e90d7f4bebd?w=600&auto=format&fit=crop&q=60",
-    channelId: "PradeepMishraJi",
-    channelTitle: "Guruji Khabar",
-    description:
-      "Janiye Guruji Pradeep Mishra ji ke Shiv Puran Katha ke niyam aur upay.",
-    publishedAt: "2025-01-01T08:00:00Z",
-    viewCount: "4500000",
-    likeCount: "120000",
-    duration: "45:00",
-    tags: ["Guruji", "Shiv Puran", "Katha"],
-  },
-  {
-    id: "bhakti4",
-    title: "Mata Rani Ke Best Bhajans | Navratri Special (Achha Achha Video)",
-    thumbnail:
-      "https://images.unsplash.com/photo-1621251346083-d023b7a8a65c?w=600&auto=format&fit=crop&q=60",
-    channelId: "BhaktiHits",
-    channelTitle: "Bhakti Song",
-    description:
-      "Mata rani ke sabse pyare aur achhe achhe bhajan aur video dekhein.",
-    publishedAt: "2023-10-12T00:00:00Z",
-    viewCount: "24000000",
-    likeCount: "530000",
-    duration: "1:04:41",
-    tags: ["Bhakti Song", "Bhajan", "Mata Rani"],
-  },
-];
-
-const FALLBACK_KIDS_VIDEOS: YouTubeVideo[] = [
-  {
-    id: "WRVsOCh907o",
-    title: "Bal Ganesha - Kids Devotional Animated Movie",
-    thumbnail:
-      "https://images.unsplash.com/photo-1629851410190-671c6d173360?w=600&auto=format&fit=crop&q=60",
-    channelId: "UC6nSelB_S_S-XvQ-Dkk4qE4",
-    channelTitle: "Kids Devotional",
-    description:
-      "Watch the fun and magical adventures of Bal Ganesha. Safe and inspiring.",
-    publishedAt: "2025-04-12T00:00:00Z",
-    viewCount: "1200000",
-    likeCount: "95000",
-    duration: "45:22",
-    tags: ["Kids", "Bal Ganesha", "Devotional", "Cartoons"],
-  },
-  {
-    id: "lG8eB0zAn_Y",
-    title: "Hanuman Chalisa For Kids - Animated Chants",
-    thumbnail:
-      "https://images.unsplash.com/photo-1596461404969-9ae70f2830c1?w=600&auto=format&fit=crop&q=60",
-    channelId: "UC6nSelB_S_S-XvQ-Dkk4qE5",
-    channelTitle: "Bhakti For Kids",
-    description:
-      "Sing along to Hanuman Chalisa with these beautiful animations for kids.",
-    publishedAt: "2024-09-20T00:00:00Z",
-    viewCount: "3400000",
-    likeCount: "180000",
-    duration: "12:15",
-    tags: ["Kids", "Hanuman Chalisa", "Singalong", "Music"],
-  },
-  {
-    id: "3AenU5tXh2Q",
-    title: "Little Krishna - Beautiful Tales of Vrindavan",
-    thumbnail:
-      "https://images.unsplash.com/photo-1601633519842-1e90d7f4bebd?w=600&auto=format&fit=crop&q=60",
-    channelId: "UC6nSelB_S_S-XvQ-Dkk4qE6",
-    channelTitle: "Vrindavan Tales",
-    description: "Enjoy the beautiful stories of Little Krishna in Vrindavan.",
-    publishedAt: "2025-02-15T00:00:00Z",
-    viewCount: "980000",
-    likeCount: "75000",
-    duration: "20:40",
-    tags: ["Kids", "Krishna", "Devotional", "Stories"],
-  },
-];
+const FALLBACK_VIDEOS: YouTubeVideo[] = CURATED_DEVOTIONAL_VIDEOS;
+const FALLBACK_KIDS_VIDEOS: YouTubeVideo[] = CURATED_KIDS_VIDEOS;
 
 import { GoogleLogin, googleLogout } from "@react-oauth/google";
 import { jwtDecode } from "jwt-decode";
@@ -207,8 +109,8 @@ export default function App() {
   const [introFinished, setIntroFinished] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
   const [activeTab, setActiveTab] = useState<
-    "home" | "favorites" | "history" | "offline" | "live" | "profile" | "issues" | "admin"
-  >(!navigator.onLine ? "offline" : "home");
+    "home" | "favorites" | "history" | "premium" | "offline" | "live" | "profile" | "issues" | "admin"
+  >("home");
   const [activeCategory, setActiveCategory] = useState("all");
 
   // Custom preference setups
@@ -289,9 +191,9 @@ export default function App() {
     return () => clearInterval(interval);
   }, [kidsMode, premiumState.active, activeTab]);
 
-  // Hide popups when entering Subscriptions tab
+  // Hide popups when entering Premium or Favorites tab
   useEffect(() => {
-    if (activeTab === "favorites") {
+    if (activeTab === "premium" || activeTab === "favorites") {
       setShowSubscriptionPopup(false);
 
       // Attempt to dismiss third-party ad overlays by finding and clicking close buttons
@@ -326,13 +228,28 @@ export default function App() {
   }, [premiumState.claimedAt, premiumState.durationMs, premiumState.active]);
 
   useEffect(() => {
-    if (user && navigator.onLine) {
-      // 1. Asynchronous Version Checking (Github Integration + Local Storage snooze)
+    const loadSavedSub = () => {
+      if (!user) return;
+      const subs = JSON.parse(localStorage.getItem("nexus_subscriptions") || "{}");
+      const userSub = subs[user.email];
+      if (userSub) {
+        const { name, claimedAt, durationMs } = userSub;
+        const now = Date.now();
+        setPremiumState({
+          name,
+          claimedAt,
+          durationMs,
+          active: now - claimedAt < durationMs,
+        });
+      } else {
+        setPremiumState({ name: null, claimedAt: null, durationMs: null, active: false });
+      }
+    };
 
-      fetch(`/api/subscription/${encodeURIComponent(user.email)}`)
-        .then((res) => res.json())
+    if (user && navigator.onLine) {
+      apiFetchJson<any>(`/api/subscription/${encodeURIComponent(user.email)}`)
         .then((data) => {
-          if (data.name) {
+          if (data?.name) {
             const now = Date.now();
             setPremiumState({
               name: data.name,
@@ -340,50 +257,18 @@ export default function App() {
               durationMs: data.durationMs,
               active: now - data.claimedAt < data.durationMs,
             });
-            const subs = JSON.parse(
-              localStorage.getItem("nexus_subscriptions") || "{}",
-            );
+            const subs = JSON.parse(localStorage.getItem("nexus_subscriptions") || "{}");
             subs[user.email] = data;
             localStorage.setItem("nexus_subscriptions", JSON.stringify(subs));
           } else {
-            setPremiumState({
-              name: null,
-              claimedAt: null,
-              durationMs: null,
-              active: false,
-            });
+            loadSavedSub();
           }
         })
-        .catch(() => {
-          const subs = JSON.parse(
-            localStorage.getItem("nexus_subscriptions") || "{}",
-          );
-          const userSub = subs[user.email];
-          if (userSub) {
-            const { name, claimedAt, durationMs } = userSub;
-            const now = Date.now();
-            setPremiumState({
-              name,
-              claimedAt,
-              durationMs,
-              active: now - claimedAt < durationMs,
-            });
-          } else {
-            setPremiumState({
-              name: null,
-              claimedAt: null,
-              durationMs: null,
-              active: false,
-            });
-          }
-        });
+        .catch(loadSavedSub);
+    } else if (user) {
+      loadSavedSub();
     } else {
-      setPremiumState({
-        name: null,
-        claimedAt: null,
-        durationMs: null,
-        active: false,
-      });
+      setPremiumState({ name: null, claimedAt: null, durationMs: null, active: false });
     }
   }, [user]);
 
@@ -412,7 +297,7 @@ export default function App() {
     );
 
     try {
-      const response = await fetch(
+      const data = await apiFetchJson<any>(
         `/api/subscription/${encodeURIComponent(user.email)}`,
         {
           method: "POST",
@@ -420,25 +305,21 @@ export default function App() {
           body: JSON.stringify({ name, durationMs }),
         },
       );
-      const data = await response.json();
 
-      if (!response.ok) {
-        setToastMsg(data.error || "Failed to claim subscription.");
-        setTimeout(() => setToastMsg(""), 3000);
-        return;
+      if (data?.name) {
+        const subs = JSON.parse(
+          localStorage.getItem("nexus_subscriptions") || "{}",
+        );
+        subs[user.email] = data;
+        localStorage.setItem("nexus_subscriptions", JSON.stringify(subs));
+        React.startTransition(() => {
+          setPremiumState({ ...data, active: true });
+          setShowSubscriptionPopup(false);
+        });
+      } else {
+        throw new Error("Local fallback subscription");
       }
-
-      const subs = JSON.parse(
-        localStorage.getItem("nexus_subscriptions") || "{}",
-      );
-      subs[user.email] = data;
-      localStorage.setItem("nexus_subscriptions", JSON.stringify(subs));
-      React.startTransition(() => {
-        setPremiumState({ ...data, active: true });
-        setShowSubscriptionPopup(false);
-      });
-    } catch (e) {
-      // Fallback
+    } catch {
       const subs = JSON.parse(
         localStorage.getItem("nexus_subscriptions") || "{}",
       );
@@ -657,17 +538,65 @@ export default function App() {
   const [isSyncOpen, setIsSyncOpen] = useState(false);
   const [isTransferAuthOpen, setIsTransferAuthOpen] = useState(false);
 
-  // Handle browser back button for Video Player Modal
+  // Handle browser & Android hardware back button cleanly across modals/tabs
   useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
+    const handlePopState = () => {
       if (selectedVideo) {
         setSelectedVideo(null);
       }
     };
+    const handleAndroidBack = (): string => {
+      if (selectedVideo) {
+        closeVideoPlayer();
+        return "handled";
+      } else if (showAiAssistant) {
+        setShowAiAssistant(false);
+        return "handled";
+      } else if (showVaultPrompt) {
+        setShowVaultPrompt(false);
+        setPendingVaultVideo(null);
+        return "handled";
+      } else if (isVaultUnlocked) {
+        setIsVaultUnlocked(false);
+        return "handled";
+      } else if (showKidsPinPrompt) {
+        setShowKidsPinPrompt(false);
+        return "handled";
+      } else if (isSyncOpen) {
+        setIsSyncOpen(false);
+        return "handled";
+      } else if (isTransferAuthOpen) {
+        setIsTransferAuthOpen(false);
+        return "handled";
+      } else if (showSubscriptionPopup) {
+        setShowSubscriptionPopup(false);
+        return "handled";
+      } else if (activeTab !== "home") {
+        setActiveTab("home");
+        return "handled";
+      }
+      return "exit";
+    };
 
+    (window as any).__nexusHandleBack = handleAndroidBack;
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [selectedVideo]);
+    window.addEventListener("nexus-back-button", handleAndroidBack);
+    return () => {
+      delete (window as any).__nexusHandleBack;
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("nexus-back-button", handleAndroidBack);
+    };
+  }, [
+    selectedVideo,
+    showAiAssistant,
+    showVaultPrompt,
+    isVaultUnlocked,
+    showKidsPinPrompt,
+    isSyncOpen,
+    isTransferAuthOpen,
+    showSubscriptionPopup,
+    activeTab,
+  ]);
 
   const closeVideoPlayer = () => {
     if (window.history.state?.videoOpen) {
@@ -745,72 +674,34 @@ export default function App() {
     }
 
     try {
-      let endpoint = `/api/youtube/search?maxResults=16&q=${encodeURIComponent("bhakti gyan uday guruji class 10 hindi")}&kidsMode=${kidsMode}`;
+      let queryText = "bhakti gyan uday guruji class 10 hindi";
+      let isLive = false;
 
-      // Category routing
-      if (activeCategory !== "all" && !currentQuery) {
-        if (activeCategory === "shorts") {
-          endpoint = `/api/youtube/search?maxResults=16&q=${encodeURIComponent("youtube shorts tiktok funny")}&kidsMode=${kidsMode}`;
-        } else {
-          endpoint = `/api/youtube/search?maxResults=16&q=${encodeURIComponent(activeCategory)}&kidsMode=${kidsMode}`;
-          if (activeCategory.includes("live")) {
-            endpoint += "&live=true";
-          }
-        }
-      } else if (currentQuery) {
-        endpoint = `/api/youtube/search?maxResults=16&q=${encodeURIComponent(currentQuery)}&kidsMode=${kidsMode}`;
-        if (currentQuery.toLowerCase().includes("live")) {
-          endpoint += "&live=true";
-        }
+      if (currentQuery.trim()) {
+        queryText = currentQuery.trim();
+        isLive = queryText.toLowerCase().includes("live");
+      } else if (activeCategory !== "all") {
+        queryText =
+          activeCategory === "shorts"
+            ? "bhakti shorts whatsapp status"
+            : activeCategory;
+        isLive = activeCategory.includes("live");
       } else if (kidsMode) {
-        // If Kids Mode is on and no query/category, fetch fun kids stuff
-        endpoint = `/api/youtube/search?maxResults=16&q=educational+kids+cartoons+stories&kidsMode=true`;
+        queryText = "educational kids cartoons stories bal ganesha krishna";
       }
 
-      // Add pagination
-      if (loadMore && pageToken) {
-        endpoint += `&pageToken=${pageToken}`;
-      }
+      const data = await fetchYouTubeSearchClient({
+        q: queryText,
+        kidsMode,
+        live: isLive,
+        maxResults: 16,
+        pageToken: loadMore ? pageToken : null,
+      });
 
-      const res = await fetch(endpoint);
-      const data = await res.json();
+      setPageToken(data.nextPageToken || null);
 
-      if (data.nextPageToken) {
-        setPageToken(data.nextPageToken);
-      } else {
-        setPageToken(null);
-      }
-
-      if (data.items && data.items.length > 0) {
-        // Parse results
-        const parsed: YouTubeVideo[] = data.items.map((item: any) => {
-          const isSearch =
-            item.id?.kind === "youtube:video" || !item.statistics;
-          const vId = isSearch ? item.id.videoId : item.id;
-          const snippet = item.snippet;
-
-          return {
-            id: vId,
-            title: snippet.title,
-            thumbnail:
-              snippet.thumbnails?.high?.url ||
-              snippet.thumbnails?.medium?.url ||
-              "",
-            channelId: snippet.channelId,
-            channelTitle: snippet.channelTitle,
-            description: snippet.description || "",
-            publishedAt: snippet.publishedAt,
-            viewCount: item.statistics?.viewCount,
-            likeCount: item.statistics?.likeCount,
-            duration: item.contentDetails?.duration
-              ? formatDurationISO(item.contentDetails.duration)
-              : "5:20",
-          };
-        });
-
-        // Filter valid parsed
-        const validParsed = parsed.filter((v) => v && v.id);
-
+      const validParsed = parseYouTubeItems(data.items || []);
+      if (validParsed.length > 0) {
         if (loadMore) {
           setVideos((prev) => {
             const newVideos = [...prev];
@@ -824,25 +715,25 @@ export default function App() {
         } else {
           setVideos(validParsed);
         }
-      } else {
-        // Quota fallback / Error fallback
-        setToastMsg(
-          "YouTube API limit reached or search failed. Showing offline preview videos.",
-        );
-        setTimeout(() => setToastMsg(""), 5000);
-        if (!loadMore) {
-          setVideos(kidsMode ? FALLBACK_KIDS_VIDEOS : FALLBACK_VIDEOS);
+      } else if (!loadMore) {
+        const pool = kidsMode ? FALLBACK_KIDS_VIDEOS : FALLBACK_VIDEOS;
+        const filterTerm = (currentQuery || (activeCategory !== "all" ? activeCategory : "")).toLowerCase();
+        const filtered = filterTerm
+          ? pool.filter(
+              (v) =>
+                v.title.toLowerCase().includes(filterTerm) ||
+                v.description.toLowerCase().includes(filterTerm) ||
+                v.tags?.some((t) => filterTerm.includes(t.toLowerCase()) || t.toLowerCase().includes(filterTerm)),
+            )
+          : pool;
+        setVideos(filtered.length > 0 ? filtered : pool);
+        if (!navigator.onLine) {
+          setToastMsg("Offline mode: showing curated preview videos.");
+          setTimeout(() => setToastMsg(""), 3500);
         }
       }
     } catch (e) {
-      console.warn(
-        "YouTube Proxy failed or throttled. Initiating high-fidelity resilience fallback.",
-        e,
-      );
-      setToastMsg(
-        "Search is currently unavailable due to high API demand. Showing offline preview videos.",
-      );
-      setTimeout(() => setToastMsg(""), 5000);
+      console.warn("YouTube feed fallback activated:", e);
       if (!loadMore) {
         setVideos(kidsMode ? FALLBACK_KIDS_VIDEOS : FALLBACK_VIDEOS);
       }
@@ -855,40 +746,43 @@ export default function App() {
     }
   };
 
-  // Fetch full sync session from server
+  // Fetch full sync session from server or local storage
   const fetchSyncSession = async (code: string) => {
-    if (!navigator.onLine) return;
-    try {
-      const res = await fetch(`/api/sync/get/${code}`);
-      if (res.status === 200) {
-        const session: SyncSession = await res.json();
-        applySyncSession(session);
-      }
-    } catch (err) {
-      console.error("Could not fetch sync session:", err);
+    const remote = navigator.onLine
+      ? await apiFetchJson<SyncSession>(`/api/sync/get/${encodeURIComponent(code)}`)
+      : null;
+    if (remote) {
+      applySyncSession(remote);
+      return;
     }
+    try {
+      const localRaw = localStorage.getItem(`nexus_local_sync_${code}`);
+      if (localRaw) applySyncSession(JSON.parse(localRaw));
+    } catch {}
   };
 
-  // Upload current local states to synchronize with server database
+  // Upload current local states to synchronize
   const triggerServerSyncUpload = async () => {
+    if (!syncCode) return;
+    const payload = {
+      code: syncCode,
+      favorites,
+      history: watchHistory,
+      playlists: [],
+      preferences: {
+        theme: (kidsMode ? "kids" : "dark") as "kids" | "dark",
+        kidsMode,
+        fontSize,
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(`nexus_local_sync_${syncCode}`, JSON.stringify(payload));
     if (!navigator.onLine) return;
-    try {
-      await fetch(`/api/sync/update/${syncCode}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          favorites,
-          history: watchHistory,
-          preferences: {
-            theme: kidsMode ? "kids" : "dark",
-            kidsMode,
-            fontSize,
-          },
-        }),
-      });
-    } catch (err) {
-      console.error("Sync upload failed:", err);
-    }
+    await apiFetchJson(`/api/sync/update/${encodeURIComponent(syncCode)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
   };
 
   const applySyncSession = (session: SyncSession) => {
@@ -915,6 +809,7 @@ export default function App() {
   // INTERACTIVE FEEDBACK HANDLERS
   // -------------------------------------------------------------
   const handleSelectVideo = (video: YouTubeVideo) => {
+    notifyVideoPlayAds(kidsMode, premiumState.active);
     window.history.pushState({ videoOpen: true }, "");
     setSelectedVideo(video);
 
@@ -958,11 +853,14 @@ export default function App() {
     let updated: YouTubeVideo[] = [];
     if (exists) {
       updated = favorites.filter((item) => item.id !== video.id);
+      setToastMsg("Removed from Favorites");
     } else {
       updated = [video, ...favorites];
+      setToastMsg("Saved to Favorites!");
     }
     setFavorites(updated);
     localStorage.setItem("nexus_favorites", JSON.stringify(updated));
+    setTimeout(() => setToastMsg(""), 2000);
   };
 
   
@@ -1160,7 +1058,9 @@ export default function App() {
       localStorage.setItem("nexus_saved_user", JSON.stringify(user));
       setSavedUser(user);
     }
-    googleLogout();
+    try {
+      googleLogout();
+    } catch {}
     setUser(null);
     setWatchHistory([]);
     setFavorites([]);
@@ -1447,17 +1347,40 @@ export default function App() {
                     />{" "}
                     <span className="font-bold relative z-10">Favorites</span>
                   </button>
-                  {user && !kidsMode && (
-                    <button
-                      onClick={() => setActiveTab("history")}
-                      className={`group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 relative overflow-hidden ${activeTab === "history" ? "bg-white/10 text-white shadow-lg" : "text-gray-400 hover:bg-white/5 hover:text-white"}`}
-                    >
-                      <Clock
-                        className={`w-6 h-6 relative z-10 transition-transform duration-300 ${activeTab === "history" ? "scale-110" : "group-hover:scale-110"}`}
-                      />{" "}
-                      <span className="font-bold relative z-10">History</span>
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setActiveTab("history")}
+                    className={`group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 relative overflow-hidden ${activeTab === "history" ? (kidsMode ? "bg-rose-100 text-rose-600 shadow-sm" : "bg-white/10 text-white shadow-lg") : "text-gray-400 hover:bg-white/5 hover:text-white"}`}
+                  >
+                    <Clock
+                      className={`w-6 h-6 relative z-10 transition-transform duration-300 ${activeTab === "history" ? "scale-110" : "group-hover:scale-110"}`}
+                    />{" "}
+                    <span className="font-bold relative z-10">History</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("premium")}
+                    className={`group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 relative overflow-hidden ${activeTab === "premium" ? (kidsMode ? "bg-rose-100 text-rose-600 shadow-sm" : "bg-amber-500/20 text-amber-300 shadow-lg") : "text-amber-400/80 hover:bg-amber-500/10 hover:text-amber-300"}`}
+                  >
+                    <Crown
+                      className={`w-6 h-6 relative z-10 transition-transform duration-300 ${activeTab === "premium" ? "scale-110" : "group-hover:scale-110"}`}
+                    />{" "}
+                    <span className="font-bold relative z-10">Go Premium</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!user) {
+                        setToastMsg("Sign in from Profile to open Secure Vault.");
+                        setTimeout(() => setToastMsg(""), 3000);
+                        setActiveTab("profile");
+                        return;
+                      }
+                      if (isVaultUnlocked) setIsVaultUnlocked(true);
+                      else setShowVaultPrompt(true);
+                    }}
+                    className="group w-full flex items-center gap-4 p-3 rounded-xl transition-all duration-300 text-gray-400 hover:bg-white/5 hover:text-white"
+                  >
+                    <Lock className="w-6 h-6 relative z-10 group-hover:scale-110 transition-transform" />
+                    <span className="font-bold relative z-10">Secure Vault</span>
+                  </button>
                 </div>
                 <div className="p-4 space-y-2 border-t border-white/10 relative z-10 bg-black/10 backdrop-blur-md">
                   <p
@@ -1517,7 +1440,38 @@ export default function App() {
               </aside>
 
               {/* MAIN CONTENT AREA */}
-              <main className="flex-1 relative overflow-y-auto p-4 md:p-8 pb-32 md:pb-8 scrollbar-none transform-gpu will-change-transform touch-pan-y contain-content">
+              <main className="flex-1 relative overflow-y-auto p-4 md:p-8 pb-28 md:pb-8 scrollbar-none transform-gpu will-change-transform touch-pan-y contain-content">
+                {/* Category Filter Pills (Home Tab) */}
+                {activeTab === "home" && (
+                  <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar pb-3 mb-2">
+                    {categories.map((cat) => {
+                      const IconComp = cat.icon;
+                      const isActive = activeCategory === cat.id && !currentQuery;
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => {
+                            setCurrentQuery("");
+                            setActiveCategory(cat.id);
+                          }}
+                          className={`relative px-3.5 py-2 rounded-full text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all cursor-pointer border ${
+                            isActive
+                              ? kidsMode
+                                ? "bg-rose-500 text-white border-rose-400 shadow-md shadow-rose-300/40"
+                                : "bg-white text-black border-white shadow-md"
+                              : kidsMode
+                                ? "bg-white/80 text-rose-800 border-rose-200 hover:bg-rose-100"
+                                : "bg-white/5 text-gray-300 border-white/10 hover:bg-white/10"
+                          }`}
+                        >
+                          <IconComp className="w-3.5 h-3.5" />
+                          <span>{cat.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {/* Persistent AdBanner - visually hidden when not on Home */}
                 <div
                   style={{
@@ -1527,8 +1481,7 @@ export default function App() {
                 >
                   {!premiumState.active &&
                     !kidsMode &&
-                    navigator.onLine &&
-                    activeTab !== "favorites" && (
+                    navigator.onLine && (
                       <AdBanner refreshKey={adRefreshKey} />
                     )}
                 </div>
@@ -1540,9 +1493,70 @@ export default function App() {
                     kidsMode={kidsMode}
                     isLoading={isLoading}
                     onRemoveVideo={handleRemoveVideo}
+                    onToggleFavorite={handleToggleFavorite}
+                    favoriteIds={new Set(favorites.map((f) => f.id))}
+                    onToggleVault={handleToggleVault}
+                    lastVideoElementRef={lastVideoElementRef}
+                    isLoadingMore={isLoadingMore}
                   />
                 )}
                 {activeTab === "favorites" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className={`text-xl font-bold font-display ${kidsMode ? "text-rose-900" : "text-white"}`}>
+                        Saved Favorites ({favorites.length})
+                      </h2>
+                      <button
+                        onClick={() => setActiveTab("premium")}
+                        className={`px-3.5 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                          kidsMode ? "bg-rose-500 text-white" : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                        }`}
+                      >
+                        <Crown className="w-3.5 h-3.5" />
+                        Go Premium
+                      </button>
+                    </div>
+                    <VideoGrid
+                      videos={favorites}
+                      onSelectVideo={handleSelectVideo}
+                      kidsMode={kidsMode}
+                      isLoading={false}
+                      onToggleFavorite={handleToggleFavorite}
+                      favoriteIds={new Set(favorites.map((f) => f.id))}
+                      onToggleVault={handleToggleVault}
+                      emptyTitle="No Favorites Yet"
+                      emptySubtitle="Tap the Heart icon on any video card or player to save your favorites here."
+                    />
+                  </div>
+                )}
+                {activeTab === "offline" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className={`text-xl font-bold font-display flex items-center gap-2 ${kidsMode ? "text-rose-900" : "text-white"}`}>
+                        <WifiOff className="w-5 h-5 text-amber-400" />
+                        Offline & Saved Previews
+                      </h2>
+                      <button
+                        onClick={() => {
+                          setActiveTab("home");
+                          fetchFeeds();
+                        }}
+                        className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-white/10 text-white hover:bg-white/20"
+                      >
+                        Retry Online
+                      </button>
+                    </div>
+                    <VideoGrid
+                      videos={favorites.length > 0 ? favorites : (kidsMode ? FALLBACK_KIDS_VIDEOS : FALLBACK_VIDEOS)}
+                      onSelectVideo={handleSelectVideo}
+                      kidsMode={kidsMode}
+                      isLoading={false}
+                      onToggleFavorite={handleToggleFavorite}
+                      favoriteIds={new Set(favorites.map((f) => f.id))}
+                    />
+                  </div>
+                )}
+                {activeTab === "premium" && (
                   <motion.div
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -1976,26 +1990,54 @@ export default function App() {
                   </motion.div>
                 )}
                 {activeTab === "history" && (
-                  <VideoGrid
-                    videos={watchHistory}
-                    onSelectVideo={handleSelectVideo}
-                    kidsMode={kidsMode}
-                    isLoading={false}
-                    onRemoveVideo={handleRemoveVideo}
-                  />
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className={`text-xl font-bold font-display ${kidsMode ? "text-rose-900" : "text-white"}`}>
+                        Watch History ({watchHistory.length})
+                      </h2>
+                      {watchHistory.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setWatchHistory([]);
+                            localStorage.removeItem("nexus_history");
+                          }}
+                          className="px-3 py-1.5 rounded-full text-xs font-bold bg-red-500/15 text-red-400 hover:bg-red-500/25"
+                        >
+                          Clear History
+                        </button>
+                      )}
+                    </div>
+                    <VideoGrid
+                      videos={watchHistory}
+                      onSelectVideo={handleSelectVideo}
+                      kidsMode={kidsMode}
+                      isLoading={false}
+                      onRemoveVideo={handleRemoveVideo}
+                      onToggleFavorite={handleToggleFavorite}
+                      favoriteIds={new Set(favorites.map((f) => f.id))}
+                      emptyTitle="No Watch History"
+                      emptySubtitle="Videos you play will appear here automatically."
+                    />
+                  </div>
                 )}
                 {activeTab === "profile" && (
-                  <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto w-full p-6">
+                  <div className="flex flex-col items-center justify-start min-h-full max-w-lg mx-auto w-full p-4 sm:p-6 gap-5">
                     <div
-                      className={`w-full rounded-3xl p-8 flex flex-col items-center text-center backdrop-blur-2xl border shadow-2xl ${kidsMode ? "bg-white/40 border-white/50" : "bg-white/5 border-white/10"}`}
+                      className={`w-full rounded-3xl p-6 sm:p-8 flex flex-col items-center text-center backdrop-blur-2xl border shadow-2xl ${kidsMode ? "bg-white/60 border-white/70" : "bg-white/5 border-white/10"}`}
                     >
                       {user ? (
                         <>
-                          <img
-                            src={user.picture}
-                            alt="Profile"
-                            className="w-24 h-24 rounded-full border-4 border-white/20 mb-4 shadow-xl"
-                          />
+                          {user.picture ? (
+                            <img
+                              src={user.picture}
+                              alt="Profile"
+                              className="w-24 h-24 rounded-full border-4 border-white/20 mb-4 shadow-xl object-cover"
+                            />
+                          ) : (
+                            <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-indigo-500 to-rose-500 flex items-center justify-center text-3xl font-bold text-white mb-4 shadow-xl">
+                              {(user.name || user.email || "N")[0].toUpperCase()}
+                            </div>
+                          )}
                           <h2 className="text-2xl font-bold font-display tracking-tight mb-1">
                             {user.name}
                           </h2>
@@ -2143,7 +2185,7 @@ export default function App() {
                               )}
 
                               {isRegistering && (
-                                <input inputMode="none" autoComplete="off"
+                                <input autoComplete="off"
                                   type="text"
                                   placeholder="Full Name"
                                   value={authName}
@@ -2157,7 +2199,7 @@ export default function App() {
                                 />
                               )}
 
-                              <input inputMode="none" autoComplete="off"
+                              <input autoComplete="off"
                                 type="email"
                                 placeholder="Email address"
                                 value={authEmail}
@@ -2170,7 +2212,7 @@ export default function App() {
                                 required
                               />
 
-                              <input inputMode="none" autoComplete="off"
+                              <input autoComplete="off"
                                 type="password"
                                 placeholder="Password"
                                 value={authPassword}
@@ -2184,7 +2226,7 @@ export default function App() {
                               />
 
                               {isRegistering && (
-                                <input inputMode="none" autoComplete="off"
+                                <input autoComplete="off"
                                   type="password"
                                   placeholder="Confirm Password"
                                   value={authConfirmPassword}
@@ -2242,6 +2284,88 @@ export default function App() {
                         </>
                       )}
                     </div>
+
+                    {/* App Permissions & Quick Controls */}
+                    <div
+                      className={`w-full rounded-3xl p-6 backdrop-blur-2xl border shadow-xl space-y-4 ${kidsMode ? "bg-white/60 border-white/70" : "bg-white/5 border-white/10"}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <h3 className="font-bold font-display text-base">App Controls & Permissions</h3>
+                        <span className="text-[11px] font-mono opacity-60">v1.2.0</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const ok = requestNativePermissions();
+                            setToastMsg(ok ? "Requested Mic & Notification permissions." : "Permissions managed by browser.");
+                            setTimeout(() => setToastMsg(""), 3000);
+                          }}
+                          className={`p-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors ${kidsMode ? "bg-rose-100 text-rose-700 hover:bg-rose-200" : "bg-white/10 text-white hover:bg-white/15"}`}
+                        >
+                          <Mic className="w-4 h-4" />
+                          <span>Grant Mic & Alerts</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowAiAssistant(true)}
+                          className={`p-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors ${kidsMode ? "bg-rose-500 text-white" : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"}`}
+                        >
+                          <Bot className="w-4 h-4" />
+                          <span>Open Nexus AI</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!user) {
+                              setToastMsg("Sign in above first to unlock Secure Vault.");
+                              setTimeout(() => setToastMsg(""), 3000);
+                              return;
+                            }
+                            if (isVaultUnlocked) setIsVaultUnlocked(true);
+                            else setShowVaultPrompt(true);
+                          }}
+                          className={`p-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors ${kidsMode ? "bg-rose-100 text-rose-700" : "bg-white/10 text-white hover:bg-white/15"}`}
+                        >
+                          <Lock className="w-4 h-4" />
+                          <span>Secure Vault</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => window.dispatchEvent(new CustomEvent("nexus-toggle-keyboard"))}
+                          className={`p-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 transition-colors ${kidsMode ? "bg-rose-100 text-rose-700" : "bg-white/10 text-white hover:bg-white/15"}`}
+                        >
+                          <Keyboard className="w-4 h-4" />
+                          <span>Custom Keyboard</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-white/10">
+                        <span className="text-xs font-semibold opacity-75">Text Size</span>
+                        <div className="flex gap-1.5">
+                          {(["sm", "md", "lg", "xl"] as const).map((sz) => (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => setFontSize(sz)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase ${
+                                fontSize === sz
+                                  ? kidsMode
+                                    ? "bg-rose-500 text-white"
+                                    : "bg-white text-black"
+                                  : "bg-white/10 opacity-70"
+                              }`}
+                            >
+                              {sz}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
                 <AnimatePresence mode="wait">
@@ -2271,90 +2395,90 @@ export default function App() {
             </div>
 
             {/* MOBILE NAVIGATION */}
-            {/* MOBILE NAVIGATION */}
             <nav
-              className={`md:hidden fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around px-2 py-3 border-t ${
+              className={`md:hidden fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around px-1 py-2.5 border-t ${
                 kidsMode
-                  ? "bg-white/40 border-white/50 backdrop-blur-3xl backdrop-saturate-200"
-                  : "bg-[#0b0b12]/50 border-white/10 backdrop-blur-3xl backdrop-saturate-200"
+                  ? "bg-white/75 border-rose-200/70 backdrop-blur-3xl backdrop-saturate-200"
+                  : "bg-[#0b0b12]/80 border-white/10 backdrop-blur-3xl backdrop-saturate-200"
               }`}
             >
-              <button
-                onClick={() => setActiveTab("home")}
-                className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
-                  activeTab === "home"
-                    ? kidsMode
-                      ? "text-rose-500"
-                      : "text-white"
-                    : "text-gray-500"
+              {[
+                { id: "home" as const, label: "Home", icon: Home },
+                { id: "favorites" as const, label: "Favorites", icon: Heart },
+                { id: "history" as const, label: "History", icon: Clock },
+                { id: "premium" as const, label: "Premium", icon: Crown },
+              ].map((item) => {
+                const IconComp = item.icon;
+                const active = activeTab === item.id;
+                return (
+                  <motion.button
+                    key={item.id}
+                    whileTap={{ scale: 0.88 }}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] font-bold transition-colors ${
+                      active
+                        ? kidsMode
+                          ? "text-rose-500"
+                          : "text-white"
+                        : "text-gray-400"
+                    }`}
+                  >
+                    <IconComp className="w-5 h-5" />
+                    <span>{item.label}</span>
+                  </motion.button>
+                );
+              })}
+
+              <motion.button
+                whileTap={{ scale: 0.88 }}
+                id="mob-nav-kids"
+                onClick={requestToggleKidsMode}
+                className={`flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] font-bold ${
+                  kidsMode ? "text-rose-500" : "text-gray-400 hover:text-white"
                 }`}
               >
-                <Home className="w-6 h-6" />
-                <span>Home</span>
-              </button>
+                <Baby className="w-5 h-5" />
+                <span>Kids</span>
+              </motion.button>
 
-              <button
-                id="mob-nav-subs"
-                onClick={() => setActiveTab("favorites")}
-                className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
-                  activeTab === "favorites"
-                    ? kidsMode
-                      ? "text-rose-500"
-                      : "text-white"
-                    : "text-gray-500"
-                }`}
-              >
-                <Heart className="w-6 h-6" />
-                <span>Favorites</span>
-              </button>
-
-              <button
+              <motion.button
+                whileTap={{ scale: 0.88 }}
                 id="mob-nav-you"
                 onClick={() => setActiveTab("profile")}
-                className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
+                className={`flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] font-bold ${
                   activeTab === "profile"
                     ? kidsMode
                       ? "text-rose-500"
                       : "text-white"
-                    : "text-gray-500"
+                    : "text-gray-400"
                 }`}
               >
                 {user && user.picture ? (
                   <img
                     src={user.picture}
                     alt="Profile"
-                    className={`w-6 h-6 rounded-full border ${activeTab === "profile" ? "border-white" : "border-transparent"}`}
+                    className={`w-5 h-5 rounded-full border ${activeTab === "profile" ? "border-white" : "border-transparent"}`}
                   />
                 ) : (
-                  <User className="w-6 h-6" />
+                  <User className="w-5 h-5" />
                 )}
                 <span>You</span>
-              </button>
-
-              <button
-                id="mob-nav-kids"
-                onClick={requestToggleKidsMode}
-                className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
-                  kidsMode ? "text-rose-500" : "text-gray-500 hover:text-white"
-                }`}
-              >
-                <Baby className="w-6 h-6" />
-                <span>Kids Mode</span>
-              </button>
+              </motion.button>
 
               {user && !kidsMode && user?.email?.toLowerCase() === "usae4544@gmail.com" && (
-                <button
+                <motion.button
+                  whileTap={{ scale: 0.88 }}
                   id="mob-nav-issue"
                   onClick={() => setActiveTab("issues")}
-                  className={`flex flex-col items-center gap-1 text-[10px] font-bold ${
+                  className={`flex flex-col items-center gap-0.5 px-2 py-1 text-[10px] font-bold ${
                     activeTab === "issues"
                       ? "text-white"
-                      : "text-gray-500 hover:text-white"
+                      : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  <AlertCircle className="w-6 h-6" />
-                  <span>Issue Mode</span>
-                </button>
+                  <AlertCircle className="w-5 h-5" />
+                  <span>Issues</span>
+                </motion.button>
               )}
             </nav>
 
@@ -2366,11 +2490,23 @@ export default function App() {
                   onClose={closeVideoPlayer}
                   kidsMode={kidsMode}
                   fontSizeClass={getFontSizeClass()}
-
                   onToggleVault={handleToggleVault}
+                  onToggleFavorite={handleToggleFavorite}
+                  isFavorite={favorites.some((v) => v.id === selectedVideo.id)}
                 />
               )}
             </AnimatePresence>
+
+            {/* Web Popunder & Floating Nexus AI */}
+            <PopunderAd
+              refreshKey={adRefreshKey}
+              isVisible={!kidsMode && !premiumState.active && activeTab === "home"}
+            />
+            <NexusAiAssistant
+              isOpen={showAiAssistant}
+              onClose={() => setShowAiAssistant(false)}
+              kidsMode={kidsMode}
+            />
 
             {/* VAULT PROMPT MODAL */}
             <AnimatePresence>
@@ -2486,72 +2622,70 @@ export default function App() {
                             })();
 
                           if (vaultPassword) {
-                            try {
-                              const res = await fetch("/api/auth/login", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  deviceId,
-                                  password: vaultInput,
-                                }),
-                              });
-                              const data = await res.json();
-
-                              if (data.success) {
-                                setIsVaultUnlocked(true);
-                                setShowVaultPrompt(false);
-                                setVaultInput("");
-                                if (pendingVaultVideo) {
-                                  setVaultVideos((prev) => {
-                                    const exists = prev.some(
-                                      (v) => v.id === pendingVaultVideo.id,
+                            const result = await loginVaultPinClient(
+                              deviceId,
+                              vaultInput,
+                            );
+                            if (result.success) {
+                              setIsVaultUnlocked(true);
+                              setShowVaultPrompt(false);
+                              setVaultInput("");
+                              if (pendingVaultVideo) {
+                                setVaultVideos((prev) => {
+                                  const exists = prev.some(
+                                    (v) => v.id === pendingVaultVideo.id,
+                                  );
+                                  if (!exists) {
+                                    const next = [...prev, pendingVaultVideo];
+                                    localStorage.setItem(
+                                      "nexus_vault_videos",
+                                      JSON.stringify(next),
                                     );
-                                    if (!exists) {
-                                      const next = [...prev, pendingVaultVideo];
-                                      localStorage.setItem(
-                                        "nexus_vault_videos",
-                                        JSON.stringify(next),
-                                      );
-                                      alert("Added to Secure Vault");
-                                      return next;
-                                    }
-                                    return prev;
-                                  });
-                                  setPendingVaultVideo(null);
-                                }
-                              } else {
-                                alert(data.error || "Incorrect password");
-                                setVaultInput("");
+                                    setToastMsg("Added to Secure Vault");
+                                    setTimeout(() => setToastMsg(""), 2500);
+                                    return next;
+                                  }
+                                  return prev;
+                                });
+                                setPendingVaultVideo(null);
                               }
-                            } catch (error) {
-                              alert("Authentication failed. Please try again.");
+                            } else {
+                              setToastMsg(result.error || "Incorrect password");
+                              setTimeout(() => setToastMsg(""), 2500);
                               setVaultInput("");
                             }
                           } else {
                             if (vaultInput.trim().length < 4) {
-                              alert("PIN must be at least 4 digits");
+                              setToastMsg("PIN must be at least 4 digits");
+                              setTimeout(() => setToastMsg(""), 2500);
                               return;
                             }
-                            try {
-                              const res = await fetch("/api/auth/setup", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  deviceId,
-                                  password: vaultInput,
-                                }),
-                              });
-                              if (res.ok) {
-                                setVaultPassword("set"); // Keep as string truthy
-                                localStorage.setItem("nexus_vault_pw", "set");
-                                setIsVaultUnlocked(true);
-                                setShowVaultPrompt(false);
-                                setVaultInput("");
-                              } else {
-                                alert("Failed to set up vault");
+                            const result = await setupVaultPinClient(
+                              deviceId,
+                              vaultInput,
+                            );
+                            if (result.success) {
+                              setVaultPassword("set");
+                              localStorage.setItem("nexus_vault_pw", "set");
+                              setIsVaultUnlocked(true);
+                              setShowVaultPrompt(false);
+                              setVaultInput("");
+                              if (pendingVaultVideo) {
+                                setVaultVideos((prev) => {
+                                  const next = prev.some((v) => v.id === pendingVaultVideo.id)
+                                    ? prev
+                                    : [...prev, pendingVaultVideo];
+                                  localStorage.setItem(
+                                    "nexus_vault_videos",
+                                    JSON.stringify(next),
+                                  );
+                                  return next;
+                                });
+                                setPendingVaultVideo(null);
                               }
-                            } catch (e) {
-                              alert("Error setting up vault");
+                            } else {
+                              setToastMsg("Failed to set up vault");
+                              setTimeout(() => setToastMsg(""), 2500);
                             }
                           }
                         }}
@@ -2575,6 +2709,7 @@ export default function App() {
                             ) {
                               setVaultPassword(null);
                               localStorage.removeItem("nexus_vault_pw");
+                              localStorage.removeItem("nexus_vault_hash");
                               setVaultVideos([]);
                               localStorage.removeItem("nexus_vault_videos");
                               setIsVaultUnlocked(false);
@@ -2730,7 +2865,7 @@ export default function App() {
                       <button
                         onClick={() => {
                           setShowSubscriptionPopup(false);
-                          setActiveTab("favorites");
+                          setActiveTab("premium");
                         }}
                         className={`w-full py-4 rounded-xl font-bold transition-all shadow-lg ${kidsMode ? "bg-rose-500 text-white hover:bg-rose-600" : "bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white"}`}
                       >
